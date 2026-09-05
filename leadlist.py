@@ -359,7 +359,7 @@ def main():
     location = input("Enter target geographic region (e.g., Naples FL, Denver CO): ").strip()
     
     print(f"\n[1/5] Finding businesses for '{category}' in '{location}'...")
-    leads = find_businesses(category, location, limit=3)
+    leads = find_businesses(category, location, limit=1)
     
     if not leads:
         print("\n[TERMINATED] No leads were retrieved. Inspect the API messages above to resolve.")
@@ -367,7 +367,7 @@ def main():
     
     records = []
     
-    for lead in leads:
+   for lead in leads[:1]:
         name = lead["name"]
         website = lead["website"]
         print(f"\nProcessing: {name} ({website})")
