@@ -181,36 +181,116 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
 # ==============================================================================
 # 3. 60-SECOND SLIDE VIDEO GENERATOR (MOVIEPY 2.0+ SYNTAX)
 # ==============================================================================
-def create_slide_image(title: str, text: str, output_path: str):
-    """Draws a clean, 1920x1080 slide image for the video presentation."""
-    img = Image.new('RGB', (1920, 1080), color=(26, 36, 43))
+def create_slide_image(
+    slide_index: int,
+    title: str,
+    text: str,
+    output_path: str,
+    logo_path: str = "logo.png"
+):
+    """
+    Renders an executive 1920x1080 widescreen presentation card matching
+    the Elkins & Co. Revenue Strategies digital-studio brand identity.
+    """
+    W, H = 1920, 1080
+    
+    # 1. Base Canvas - Deep Slate/Navy Background
+    BG_COLOR = (15, 23, 42)          # #0F172A
+    CARD_BG = (30, 41, 59)           # #1E293B
+    CARD_BORDER = (51, 65, 85)       # #334155
+    ACCENT_BLUE = (37, 99, 235)      # #2563EB
+    TEXT_WHITE = (255, 255, 255)     # #FFFFFF
+    TEXT_MUTED = (203, 213, 225)     # #CBD5E1
+    SLATE_GRAY = (148, 163, 184)     # #94A3B8
+
+    img = Image.new("RGB", (W, H), color=BG_COLOR)
     draw = ImageDraw.Draw(img)
-    
+
+    # 2. Main Center Card Container (Rounded Modern UI)
+    card_margin_x, card_margin_y = 120, 90
+    card_rect = [card_margin_x, card_margin_y, W - card_margin_x, H - card_margin_y]
+    draw.rounded_rectangle(card_rect, radius=24, fill=CARD_BG, outline=CARD_BORDER, width=2)
+
+    # 3. Typography Selection (Falls back to default if TTF unavailable)
     try:
-        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 64)
+        font_brand = ImageFont.truetype("DejaVuSans-Bold.ttf", 26)
+        font_pill = ImageFont.truetype("DejaVuSans-Bold.ttf", 20)
+        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
         font_body = ImageFont.truetype("DejaVuSans.ttf", 36)
+        font_footer = ImageFont.truetype("DejaVuSans.ttf", 20)
     except:
-        font_title = font_body = ImageFont.load_default()
-        
-    draw.text((120, 160), title, fill=(255, 255, 255), font=font_title)
-    draw.line((120, 260, 400, 260), fill=(229, 62, 62), width=6)
+        font_brand = font_pill = font_title = font_body = font_footer = ImageFont.load_default()
+
+    # 4. Top Brand Header & Logo Lockup
+    header_y = card_margin_y + 50
+    content_x = card_margin_x + 80
+
+    if os.path.exists(logo_path):
+        try:
+            logo = Image.open(logo_path).convert("RGBA")
+            logo.thumbnail((260, 60), Image.Resampling.LANCZOS)
+            img.paste(logo, (content_x, header_y), logo)
+            brand_text_x = content_x + logo.width + 25
+        except Exception:
+            brand_text_x = content_x
+    else:
+        # Programmatic "Kinetic Pulse" Bar Graph Emblem fallback
+        bar_x = content_x
+        bar_w = 8
+        draw.rectangle([bar_x, header_y + 18, bar_x + bar_w, header_y + 40], fill=SLATE_GRAY)
+        draw.rectangle([bar_x + 14, header_y + 10, bar_x + 14 + bar_w, header_y + 40], fill=CARD_BORDER)
+        draw.rectangle([bar_x + 28, header_y, bar_x + 28 + bar_w, header_y + 40], fill=ACCENT_BLUE)
+        brand_text_x = content_x + 55
+
+    draw.text((brand_text_x, header_y + 6), "ELKINS & CO · REVENUE STRATEGIES", fill=TEXT_MUTED, font=font_brand)
     
-    # Word wrap body text
+    # 5. Slide Category Pill / Badge
+    pill_y = header_y + 100
+    pill_labels = [
+        "EXECUTIVE AUDIT FINDING",
+        "REVENUE & TRAFFIC IMPACT",
+        "PROPOSED STRATEGIC FIX",
+        "RECOMMENDED ACTION STEP"
+    ]
+    pill_label = pill_labels[slide_index] if slide_index < len(pill_labels) else "DIAGNOSTIC BRIEF"
+    
+    bbox = draw.textbbox((0, 0), pill_label, font=font_pill)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    pill_padding_x, pill_padding_y = 20, 8
+    pill_rect = [content_x, pill_y, content_x + tw + (pill_padding_x * 2), pill_y + th + (pill_padding_y * 2)]
+    
+    draw.rounded_rectangle(pill_rect, radius=8, fill=ACCENT_BLUE)
+    draw.text((content_x + pill_padding_x, pill_y + pill_padding_y), pill_label, fill=TEXT_WHITE, font=font_pill)
+
+    # 6. Slide Title
+    title_y = pill_rect[3] + 35
+    draw.text((content_x, title_y), title, fill=TEXT_WHITE, font=font_title)
+    
+    line_y = title_y + 90
+    draw.line((content_x, line_y, content_x + 200, line_y), fill=ACCENT_BLUE, width=5)
+
+    # 7. Body Copy (Word Wrapped to 52 chars)
+    body_y = line_y + 50
     words = text.split()
     lines, current_line = [], []
     for word in words:
-        if len(' '.join(current_line + [word])) < 55:
+        if len(" ".join(current_line + [word])) < 52:
             current_line.append(word)
         else:
-            lines.append(' '.join(current_line))
+            lines.append(" ".join(current_line))
             current_line = [word]
-    lines.append(' '.join(current_line))
-    
-    y = 360
+    lines.append(" ".join(current_line))
+
     for line in lines:
-        draw.text((120, y), line, fill=(203, 213, 225), font=font_body)
-        y += 55
-        
+        draw.text((content_x, body_y), line, fill=TEXT_MUTED, font=font_body)
+        body_y += 58
+
+    # 8. Card Footer
+    footer_y = H - card_margin_y - 65
+    draw.line((content_x, footer_y - 20, W - card_margin_x - 80, footer_y - 20), fill=CARD_BORDER, width=1)
+    draw.text((content_x, footer_y), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=SLATE_GRAY, font=font_footer)
+    draw.text((W - card_margin_x - 360, footer_y), "WWW.ELKINSREVENUE.COM", fill=ACCENT_BLUE, font=font_footer)
+
     img.save(output_path)
 
 def generate_tts_elevenlabs(text: str, output_audio_path: str):
@@ -221,31 +301,34 @@ def generate_tts_elevenlabs(text: str, output_audio_path: str):
     asyncio.run(_run())
 
 def assemble_pitch_video(company_name: str, video_slides: list, output_filename: str) -> str:
-    """Builds a ~60-second video combining static slides with synchronized TTS audio (MoviePy 2.0+ compatible)."""
+    """Builds a ~60-second video combining static slides with synchronized TTS audio."""
     clips = []
     
     for i, slide in enumerate(video_slides):
         slide_img = f"slide_{i}.png"
         slide_audio = f"audio_{i}.mp3"
         
-        create_slide_image(slide["slide_title"], slide["voiceover"], slide_img)
+        create_slide_image(
+            slide_index=i,
+            title=slide["slide_title"],
+            text=slide["voiceover"],
+            output_path=slide_img,
+            logo_path="G:\\My Drive\\Elkins Revenue Consulting\\logo.png"
+        )
         generate_tts_elevenlabs(slide["voiceover"], slide_audio)
         
         audio_clip = AudioFileClip(slide_audio)
-        # Uses MoviePy 2.0+ with_* methods
         img_clip = ImageClip(slide_img).with_duration(audio_clip.duration).with_audio(audio_clip)
         clips.append(img_clip)
         
     final_video = concatenate_videoclips(clips, method="compose")
     final_video.write_videofile(output_filename, fps=24, codec="libx264", audio_codec="aac", logger=None)
     
-    # Cleanup interim assets
     for i in range(len(video_slides)):
         if os.path.exists(f"slide_{i}.png"): os.remove(f"slide_{i}.png")
         if os.path.exists(f"audio_{i}.mp3"): os.remove(f"audio_{i}.mp3")
         
     return output_filename
-
 # ==============================================================================
 # 4. EMAIL TRANSMISSION
 # ==============================================================================
