@@ -353,6 +353,9 @@ def send_prospect_email(to_email: str, subject: str, body: str, attachment_path:
 # ==============================================================================
 # MAIN EXECUTION LOOP
 # ==============================================================================
+# ==============================================================================
+# MAIN EXECUTION LOOP
+# ==============================================================================
 def main():
     print("\n--- B2B Prospecting & Custom Video Pipeline ---")
     category = input("Enter target business category (e.g., HVAC, Locksmith, Event Planner): ").strip()
@@ -367,7 +370,7 @@ def main():
     
     records = []
     
-   for lead in leads[:1]:
+    for lead in leads[:1]:
         name = lead["name"]
         website = lead["website"]
         print(f"\nProcessing: {name} ({website})")
