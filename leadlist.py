@@ -2,43 +2,53 @@ import os
 import re
 import json
 import smtplib
-import asyncio
 from email.message import EmailMessage
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-import edge_tts
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
 
 # ==============================================================================
-# CONFIGURATION & API KEYS
+# CONFIGURATION & CREDENTIALS
 # ==============================================================================
 CONFIG = {
-    # Custom LLM / NRP API Endpoint
-    "NRP_ENDPOINT": "https://ellm.nrp-nautilus.io/v1",
+    # Custom LLM / NRP Nautilus Endpoint
+    "NRP_ENDPOINT": os.getenv("NRP_ENDPOINT", "https://ellm.nrp-nautilus.io/v1"),
     "NRP_API_KEY": os.getenv("NRP_API_KEY", "your-nrp-api-key"),
-    "MODEL_NAME": "qwen3",  # <-- Swapped from 'default-model' to your live cluster model
-    # Places & Enrichment
+    "MODEL_NAME": "qwen3",
+    
+    # Google Places API (New)
     "GOOGLE_PLACES_KEY": os.getenv("GOOGLE_PLACES_KEY"),
-    # Voiceover (ElevenLabs)
+    
+    # ElevenLabs Audio Settings
     "ELEVENLABS_KEY": os.getenv("ELEVENLABS_KEY", "your-elevenlabs-key"),
+    "VOICE_ID": "nPczCjzI2devNBz1zQrb",  # Brian (Executive Narrative)
+    
+    # Brand Identity & Contact Assets
+    "AGENCY_NAME": "ELKINS & CO · REVENUE STRATEGIES",
+    "AGENCY_PHONE": "917-327-0636",
+    "AGENCY_EMAIL": "lorren@smartlocalbots.com",
+    "AGENCY_WEBSITE": "www.elkinsrevenue.com",
+    "LOGO_PATH": "G:\\My Drive\\Elkins Revenue Consulting\\logo.png",
+    
     # Email SMTP Settings
     "SMTP_SERVER": "smtp.gmail.com",
     "SMTP_PORT": 465,
     "SENDER_EMAIL": "your-email@domain.com",
     "SENDER_PASSWORD": "your-app-password",
-    "OUTPUT_CSV": "prospecting_leads.csv",
+    "OUTPUT_CSV": "prospecting_leads.csv"
 }
+
 # ==============================================================================
-# 1. CORE DISCOVERY & SCRAPING
+# 1. DISCOVERY & SCRAPING ENGINE
 # ==============================================================================
-def find_businesses(category: str, location: str, limit: int = 5) -> list:
-    """Discovers targets via Google Places API (New Text Search) with full diagnostics."""
+def find_businesses(category: str, location: str, limit: int = 1) -> list:
+    """Discovers targets via Google Places API (New Text Search)."""
     api_key = CONFIG.get("GOOGLE_PLACES_KEY")
     if not api_key or api_key == "your-places-api-key":
-        print("\n[CONFIG ERROR] Missing Google Places API Key in CONFIG['GOOGLE_PLACES_KEY'].")
+        print("\n[CONFIG ERROR] Missing Google Places API Key in environment or CONFIG.")
         return []
 
     url = "https://places.googleapis.com/v1/places:searchText"
@@ -51,7 +61,6 @@ def find_businesses(category: str, location: str, limit: int = 5) -> list:
     
     try:
         res = requests.post(url, headers=headers, json=payload)
-        
         if res.status_code != 200:
             print(f"\n[Google Places API Error {res.status_code}]: {res.text}")
             return []
@@ -77,13 +86,14 @@ def find_businesses(category: str, location: str, limit: int = 5) -> list:
         return []
 
 def scrape_site_footprint(website_url: str) -> dict:
-    """Scrapes homepage HTML for emails, social links, and basic performance indicators."""
+    """Scrapes homepage HTML for emails, social links, logo, and performance indicators."""
     details = {
         "email": "Not Listed",
         "social_links": [],
         "load_speed_sec": 0.0,
         "content_snippet": "",
-        "missing_elements": []
+        "missing_elements": [],
+        "logo_img_path": "prospect_logo_temp.png"
     }
     if not website_url:
         return details
@@ -96,39 +106,54 @@ def scrape_site_footprint(website_url: str) -> dict:
         
         soup = BeautifulSoup(resp.text, "html.parser")
         
-        # Scrape raw email via regex
+        # Public email discovery
         emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resp.text)
         valid_emails = [e for e in emails if not e.endswith(('.png', '.jpg', '.webp', '.svg'))]
         if valid_emails:
             details["email"] = valid_emails[0]
             
-        # Detect Social Channels
+        # Social links discovery
         for link in soup.find_all("a", href=True):
             href = link["href"].lower()
             for platform in ["facebook.com", "instagram.com", "linkedin.com", "youtube.com", "tiktok.com"]:
                 if platform in href and href not in details["social_links"]:
                     details["social_links"].append(href)
                     
-        # Check conversion & SEO baseline
-        h1s = soup.find_all("h1")
-        if not h1s:
+        # UX & Technical elements
+        if not soup.find_all("h1"):
             details["missing_elements"].append("Missing H1 Header")
         if not re.search(r'href=["\']tel:', resp.text):
             details["missing_elements"].append("No Tap-to-Call Link")
             
         body_text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2'])])
         details["content_snippet"] = body_text[:1500]
-        
-    except Exception as e:
+
+        # Scrape prospect logo or high-res icon
+        logo_url = None
+        icon_tag = soup.find("link", rel=lambda x: x and ("icon" in x.lower() or "apple-touch-icon" in x.lower()))
+        if icon_tag and icon_tag.get("href"):
+            logo_url = urljoin(website_url, icon_tag["href"])
+        else:
+            img_tag = soup.find("img", src=lambda x: x and any(k in x.lower() for k in ["logo", "brand", "header"]))
+            if img_tag and img_tag.get("src"):
+                logo_url = urljoin(website_url, img_tag["src"])
+
+        if logo_url:
+            r_img = requests.get(logo_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+            if r_img.status_code == 200 and len(r_img.content) > 500:
+                with open(details["logo_img_path"], "wb") as f:
+                    f.write(r_img.content)
+
+    except Exception:
         details["missing_elements"].append("Website Inaccessible/Slow")
         
     return details
 
 # ==============================================================================
-# 2. AUDIT & OUTREACH GENERATION (NRP ENDPOINT)
+# 2. AUDIT & OUTREACH COMPOSITION (NRP CLUSTER)
 # ==============================================================================
 def call_nrp_llm(prompt: str) -> str:
-    """Sends prompt to your custom NRP LLM endpoint."""
+    """Sends prompt to your custom NRP Nautilus vLLM endpoint."""
     headers = {
         "Authorization": f"Bearer {CONFIG['NRP_API_KEY']}",
         "Content-Type": "application/json"
@@ -143,7 +168,7 @@ def call_nrp_llm(prompt: str) -> str:
     return res.json()["choices"][0]["message"]["content"]
 
 def audit_and_compose(lead: dict, footprint: dict) -> dict:
-    """Evaluates the digital presence, identifies core weakness, and drafts email & video script."""
+    """Evaluates the digital audit, isolates core weakness, and drafts video narrative."""
     audit_prompt = f"""
     Analyze the digital footprint of this business and return a JSON object with your assessment.
     Business Name: {lead['name']}
@@ -164,13 +189,15 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
       "core_weakness": "<name of lowest category and specific diagnostic reason>",
       "solution": "<our agency's targeted, high-ROI fix>",
       "email_subject": "<compelling, non-spammy subject line>",
-      "email_body": "<under 130 words, referencing their specific bottleneck, offering the fix, and referencing the attached 60s breakdown video>",
+      "email_body": "<under 130 words, referencing their specific bottleneck, offering the fix, and referencing the attached breakdown video>",
+      "intro_voiceover": "Welcome. In this brief executive briefing, we review the digital baseline and revenue performance for {lead['name']}.",
       "video_script": [
          {{"slide_title": "Current Bottleneck", "voiceover": "<15 seconds breaking down what is currently losing them leads>"}},
-         {{"slide_title": "Missed Revenue", "voiceover": "<15 seconds highlighting the impact of this weakness on local traffic>"}},
+         {{"slide_title": "Revenue Impact", "voiceover": "<15 seconds highlighting the impact of this weakness on local traffic>"}},
          {{"slide_title": "The Strategic Fix", "voiceover": "<15 seconds outlining our agency solution>"}},
-         {{"slide_title": "Next Step", "voiceover": "<15 seconds zero-friction call to action>"}}
-      ]
+         {{"slide_title": "Action Step", "voiceover": "<12 seconds zero-friction call to action>"}}
+      ],
+      "outro_voiceover": "To review the complete audit findings or discuss implementation, contact Elkins and Co at elkinsrevenue.com."
     }}
     Return ONLY pure, valid JSON.
     """
@@ -179,161 +206,304 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
     return json.loads(clean_json)
 
 # ==============================================================================
-# 3. 60-SECOND SLIDE VIDEO GENERATOR (MOVIEPY 2.0+ SYNTAX)
+# 3. HIGH-IMPACT SLIDE DECK RENDERER
 # ==============================================================================
-def create_slide_image(
-    slide_index: int,
-    title: str,
-    text: str,
-    output_path: str,
-    logo_path: str = "logo.png"
-):
-    """
-    Renders an executive 1920x1080 widescreen presentation card matching
-    the Elkins & Co. Revenue Strategies digital-studio brand identity.
-    """
-    W, H = 1920, 1080
-    
-    # 1. Base Canvas - Deep Slate/Navy Background
-    BG_COLOR = (15, 23, 42)          # #0F172A
-    CARD_BG = (30, 41, 59)           # #1E293B
-    CARD_BORDER = (51, 65, 85)       # #334155
-    ACCENT_BLUE = (37, 99, 235)      # #2563EB
-    TEXT_WHITE = (255, 255, 255)     # #FFFFFF
-    TEXT_MUTED = (203, 213, 225)     # #CBD5E1
-    SLATE_GRAY = (148, 163, 184)     # #94A3B8
+def load_font(font_name_list, size):
+    for name in font_name_list:
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
 
-    img = Image.new("RGB", (W, H), color=BG_COLOR)
-    draw = ImageDraw.Draw(img)
-
-    # 2. Main Center Card Container (Rounded Modern UI)
-    card_margin_x, card_margin_y = 120, 90
-    card_rect = [card_margin_x, card_margin_y, W - card_margin_x, H - card_margin_y]
-    draw.rounded_rectangle(card_rect, radius=24, fill=CARD_BG, outline=CARD_BORDER, width=2)
-
-    # 3. Typography Selection (Falls back to default if TTF unavailable)
-    try:
-        font_brand = ImageFont.truetype("DejaVuSans-Bold.ttf", 26)
-        font_pill = ImageFont.truetype("DejaVuSans-Bold.ttf", 20)
-        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
-        font_body = ImageFont.truetype("DejaVuSans.ttf", 36)
-        font_footer = ImageFont.truetype("DejaVuSans.ttf", 20)
-    except:
-        font_brand = font_pill = font_title = font_body = font_footer = ImageFont.load_default()
-
-    # 4. Top Brand Header & Logo Lockup
-    header_y = card_margin_y + 50
-    content_x = card_margin_x + 80
+def draw_agency_brand(draw, img, content_x, header_y, logo_path):
+    """Draws agency logo or Kinetic Pulse emblem in the top left."""
+    BG_CARD_BORDER = (51, 65, 85)
+    ACCENT_BLUE = (37, 99, 235)
+    SLATE_GRAY = (148, 163, 184)
+    font_brand = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
 
     if os.path.exists(logo_path):
         try:
             logo = Image.open(logo_path).convert("RGBA")
-            logo.thumbnail((260, 60), Image.Resampling.LANCZOS)
+            logo.thumbnail((260, 65), Image.Resampling.LANCZOS)
             img.paste(logo, (content_x, header_y), logo)
-            brand_text_x = content_x + logo.width + 25
+            brand_text_x = content_x + logo.width + 30
         except Exception:
             brand_text_x = content_x
     else:
-        # Programmatic "Kinetic Pulse" Bar Graph Emblem fallback
-        bar_x = content_x
-        bar_w = 8
-        draw.rectangle([bar_x, header_y + 18, bar_x + bar_w, header_y + 40], fill=SLATE_GRAY)
-        draw.rectangle([bar_x + 14, header_y + 10, bar_x + 14 + bar_w, header_y + 40], fill=CARD_BORDER)
-        draw.rectangle([bar_x + 28, header_y, bar_x + 28 + bar_w, header_y + 40], fill=ACCENT_BLUE)
-        brand_text_x = content_x + 55
+        # Kinetic Pulse Graph Bar Fallback
+        draw.rectangle([content_x, header_y + 20, content_x + 10, header_y + 44], fill=SLATE_GRAY)
+        draw.rectangle([content_x + 16, header_y + 12, content_x + 26, header_y + 44], fill=BG_CARD_BORDER)
+        draw.rectangle([content_x + 32, header_y, content_x + 42, header_y + 44], fill=ACCENT_BLUE)
+        brand_text_x = content_x + 65
 
-    draw.text((brand_text_x, header_y + 6), "ELKINS & CO · REVENUE STRATEGIES", fill=TEXT_MUTED, font=font_brand)
+    draw.text((brand_text_x, header_y + 6), CONFIG["AGENCY_NAME"], fill=SLATE_GRAY, font=font_brand)
+
+def create_title_slide(lead_name: str, output_path: str, prospect_logo_path: str):
+    """Renders the executive title slide with co-branded badges and audit title."""
+    W, H = 1920, 1080
+    BG_COLOR, CARD_BG = (15, 23, 42), (30, 41, 59)
+    CARD_BORDER, ACCENT_BLUE = (51, 65, 85), (37, 99, 235)
+    TEXT_WHITE, SLATE_GRAY, TEXT_MUTED = (255, 255, 255), (148, 163, 184), (226, 232, 240)
+
+    img = Image.new("RGB", (W, H), color=BG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    margin_x, margin_y = 100, 70
+    draw.rounded_rectangle([margin_x, margin_y, W - margin_x, H - margin_y], radius=20, fill=CARD_BG, outline=CARD_BORDER, width=2)
+
+    content_x = margin_x + 100
+    header_y = margin_y + 60
+    draw_agency_brand(draw, img, content_x, header_y, CONFIG["LOGO_PATH"])
+
+    font_pill = load_font(["arialbd.ttf", "segoeuib.ttf"], 24)
+    font_main_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 70)
+    font_sub = load_font(["arial.ttf", "segoeui.ttf"], 38)
+    font_badge = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
+
+    # Category Pill
+    pill_y = header_y + 110
+    draw.rounded_rectangle([content_x, pill_y, content_x + 360, pill_y + 44], radius=8, fill=ACCENT_BLUE)
+    draw.text((content_x + 24, pill_y + 8), "CONFIDENTIAL AUDIT BRIEFING", fill=TEXT_WHITE, font=font_pill)
+
+    # Prospect Logo / Badge
+    logo_y = pill_y + 85
+    placed_prospect_logo = False
+    if os.path.exists(prospect_logo_path):
+        try:
+            p_logo = Image.open(prospect_logo_path).convert("RGBA")
+            p_logo.thumbnail((260, 90), Image.Resampling.LANCZOS)
+            img.paste(p_logo, (content_x, logo_y), p_logo)
+            placed_prospect_logo = True
+        except Exception:
+            pass
+
+    if not placed_prospect_logo:
+        draw.rounded_rectangle([content_x, logo_y, content_x + 220, logo_y + 70], radius=10, fill=CARD_BORDER)
+        draw.text((content_x + 30, logo_y + 16), "PROSPECT", fill=SLATE_GRAY, font=font_badge)
+
+    # Main Title
+    title_y = logo_y + 110
+    draw.text((content_x, title_y), f"Digital Performance & Revenue Audit", fill=TEXT_WHITE, font=font_main_title)
+    draw.line((content_x, title_y + 95, content_x + 260, title_y + 95), fill=ACCENT_BLUE, width=6)
     
-    # 5. Slide Category Pill / Badge
-    pill_y = header_y + 100
+    # Subtext
+    sub_y = title_y + 130
+    draw.text((content_x, sub_y), f"Prepared Exclusively for Leadership at: {lead_name}", fill=TEXT_MUTED, font=font_sub)
+    draw.text((content_x, sub_y + 60), "Executive Assessment of Conversion Infrastructure, Local Visibility & Growth Bottlenecks", fill=SLATE_GRAY, font=font_sub)
+
+    img.save(output_path)
+
+def create_body_slide(slide_index: int, title: str, text: str, output_path: str):
+    """Renders high-visibility diagnostic body slides."""
+    W, H = 1920, 1080
+    BG_COLOR, CARD_BG = (15, 23, 42), (30, 41, 59)
+    CARD_BORDER, ACCENT_BLUE = (51, 65, 85), (37, 99, 235)
+    TEXT_WHITE, TEXT_MUTED, SLATE_GRAY = (255, 255, 255), (226, 232, 240), (148, 163, 184)
+
+    img = Image.new("RGB", (W, H), color=BG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    margin_x, margin_y = 100, 70
+    draw.rounded_rectangle([margin_x, margin_y, W - margin_x, H - margin_y], radius=20, fill=CARD_BG, outline=CARD_BORDER, width=2)
+
+    font_pill = load_font(["arialbd.ttf", "segoeuib.ttf"], 24)
+    font_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 72)
+    font_body = load_font(["arial.ttf", "segoeui.ttf"], 46)
+    font_footer = load_font(["arial.ttf", "segoeui.ttf"], 22)
+
+    content_x = margin_x + 100
+    content_max_w = W - margin_x - 100
+    header_y = margin_y + 60
+    draw_agency_brand(draw, img, content_x, header_y, CONFIG["LOGO_PATH"])
+
+    # Slide Category Pill
+    pill_y = header_y + 105
     pill_labels = [
-        "EXECUTIVE AUDIT FINDING",
-        "REVENUE & TRAFFIC IMPACT",
-        "PROPOSED STRATEGIC FIX",
-        "RECOMMENDED ACTION STEP"
+        "01 / EXECUTIVE AUDIT FINDING",
+        "02 / REVENUE & TRAFFIC IMPACT",
+        "03 / PROPOSED STRATEGIC FIX",
+        "04 / RECOMMENDED NEXT STEP"
     ]
-    pill_label = pill_labels[slide_index] if slide_index < len(pill_labels) else "DIAGNOSTIC BRIEF"
+    pill_label = pill_labels[slide_index] if slide_index < len(pill_labels) else "STRATEGIC BRIEF"
     
     bbox = draw.textbbox((0, 0), pill_label, font=font_pill)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    pill_padding_x, pill_padding_y = 20, 8
-    pill_rect = [content_x, pill_y, content_x + tw + (pill_padding_x * 2), pill_y + th + (pill_padding_y * 2)]
-    
+    pill_rect = [content_x, pill_y, content_x + tw + 48, pill_y + th + 20]
     draw.rounded_rectangle(pill_rect, radius=8, fill=ACCENT_BLUE)
-    draw.text((content_x + pill_padding_x, pill_y + pill_padding_y), pill_label, fill=TEXT_WHITE, font=font_pill)
+    draw.text((content_x + 24, pill_y + 10), pill_label, fill=TEXT_WHITE, font=font_pill)
 
-    # 6. Slide Title
-    title_y = pill_rect[3] + 35
+    # Headline
+    title_y = pill_rect[3] + 40
     draw.text((content_x, title_y), title, fill=TEXT_WHITE, font=font_title)
-    
-    line_y = title_y + 90
-    draw.line((content_x, line_y, content_x + 200, line_y), fill=ACCENT_BLUE, width=5)
+    draw.line((content_x, title_y + 110, content_x + 240, title_y + 110), fill=ACCENT_BLUE, width=6)
 
-    # 7. Body Copy (Word Wrapped to 52 chars)
-    body_y = line_y + 50
+    # Body Text (Wrapped to 68 characters for widescreen readability)
+    body_y = title_y + 170
     words = text.split()
     lines, current_line = [], []
     for word in words:
-        if len(" ".join(current_line + [word])) < 52:
+        if len(" ".join(current_line + [word])) < 68:
             current_line.append(word)
         else:
             lines.append(" ".join(current_line))
             current_line = [word]
     lines.append(" ".join(current_line))
 
-    for line in lines:
+    for line in lines[:5]:
         draw.text((content_x, body_y), line, fill=TEXT_MUTED, font=font_body)
-        body_y += 58
+        body_y += 72
 
-    # 8. Card Footer
-    footer_y = H - card_margin_y - 65
-    draw.line((content_x, footer_y - 20, W - card_margin_x - 80, footer_y - 20), fill=CARD_BORDER, width=1)
+    # Footer
+    footer_y = H - margin_y - 70
+    draw.line((content_x, footer_y - 20, content_max_w, footer_y - 20), fill=CARD_BORDER, width=1)
     draw.text((content_x, footer_y), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=SLATE_GRAY, font=font_footer)
-    draw.text((W - card_margin_x - 360, footer_y), "WWW.ELKINSREVENUE.COM", fill=ACCENT_BLUE, font=font_footer)
+    draw.text((W - margin_x - 380, footer_y), CONFIG["AGENCY_WEBSITE"].upper(), fill=ACCENT_BLUE, font=font_footer)
 
     img.save(output_path)
 
-def generate_tts_elevenlabs(text: str, output_audio_path: str):
-    """Generates clean, free neural voiceover locally via Edge-TTS (No API key needed)."""
-    async def _run():
-        communicate = edge_tts.Communicate(text, "en-US-GuyNeural")
-        await communicate.save(output_audio_path)
-    asyncio.run(_run())
+def create_outro_slide(output_path: str):
+    """Renders the executive closing slide with agency contact coordinates."""
+    W, H = 1920, 1080
+    BG_COLOR, CARD_BG = (15, 23, 42), (30, 41, 59)
+    CARD_BORDER, ACCENT_BLUE = (51, 65, 85), (37, 99, 235)
+    TEXT_WHITE, TEXT_MUTED, SLATE_GRAY = (255, 255, 255), (226, 232, 240), (148, 163, 184)
 
-def assemble_pitch_video(company_name: str, video_slides: list, output_filename: str) -> str:
-    """Builds a ~60-second video combining static slides with synchronized TTS audio."""
-    clips = []
+    img = Image.new("RGB", (W, H), color=BG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    margin_x, margin_y = 100, 70
+    draw.rounded_rectangle([margin_x, margin_y, W - margin_x, H - margin_y], radius=20, fill=CARD_BG, outline=CARD_BORDER, width=2)
+
+    font_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 72)
+    font_sub = load_font(["arial.ttf", "segoeui.ttf"], 40)
+    font_contact_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)
+    font_contact_val = load_font(["arial.ttf", "segoeui.ttf"], 36)
+
+    content_x = margin_x + 100
+    header_y = margin_y + 60
+    draw_agency_brand(draw, img, content_x, header_y, CONFIG["LOGO_PATH"])
+
+    title_y = header_y + 140
+    draw.text((content_x, title_y), "Ready to Eliminate Digital Leakage?", fill=TEXT_WHITE, font=font_title)
+    draw.line((content_x, title_y + 100, content_x + 280, title_y + 100), fill=ACCENT_BLUE, width=6)
     
-    for i, slide in enumerate(video_slides):
-        slide_img = f"slide_{i}.png"
-        slide_audio = f"audio_{i}.mp3"
+    sub_y = title_y + 130
+    draw.text((content_x, sub_y), "Let's review the full diagnostic dataset and implement the fix.", fill=TEXT_MUTED, font=font_sub)
+
+    # 3-Column Contact Coordinates Card
+    box_y = sub_y + 100
+    box_w = W - (content_x * 2)
+    draw.rounded_rectangle([content_x, box_y, content_x + box_w, box_y + 180], radius=16, fill=(15, 23, 42), outline=CARD_BORDER, width=2)
+
+    col_w = box_w // 3
+    # Col 1: Web
+    draw.text((content_x + 50, box_y + 40), "VISIT US ONLINE", fill=SLATE_GRAY, font=font_contact_title)
+    draw.text((content_x + 50, box_y + 95), CONFIG["AGENCY_WEBSITE"], fill=ACCENT_BLUE, font=font_contact_val)
+
+    # Col 2: Phone
+    draw.text((content_x + col_w + 50, box_y + 40), "DIRECT INQUIRIES", fill=SLATE_GRAY, font=font_contact_title)
+    draw.text((content_x + col_w + 50, box_y + 95), CONFIG["AGENCY_PHONE"], fill=TEXT_WHITE, font=font_contact_val)
+
+    # Col 3: Email
+    draw.text((content_x + (col_w * 2) + 50, box_y + 40), "EMAIL OUR TEAM", fill=SLATE_GRAY, font=font_contact_title)
+    draw.text((content_x + (col_w * 2) + 50, box_y + 95), CONFIG["AGENCY_EMAIL"], fill=TEXT_WHITE, font=font_contact_val)
+
+    img.save(output_path)
+
+# ==============================================================================
+# 4. ELEVENLABS AUDIO & VIDEO COMPILATION
+# ==============================================================================
+def generate_tts_elevenlabs(text: str, output_audio_path: str):
+    """Generates studio-grade voiceover via ElevenLabs Turbo 2.5."""
+    api_key = os.getenv("ELEVENLABS_KEY") or CONFIG.get("ELEVENLABS_KEY")
+    if not api_key or "your-" in api_key:
+        raise ValueError("Missing valid ElevenLabs API key.")
+
+    voice_id = CONFIG.get("VOICE_ID", "nPczCjzI2devNBz1zQrb")
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_turbo_v2_5",
+        "voice_settings": {
+            "stability": 0.45,
+            "similarity_boost": 0.80,
+            "style": 0.20,
+            "use_speaker_boost": True
+        }
+    }
+
+    res = requests.post(url, headers=headers, json=payload)
+    if res.status_code != 200:
+        raise RuntimeError(f"ElevenLabs API Error {res.status_code}: {res.text}")
+
+    with open(output_audio_path, "wb") as f:
+        f.write(res.content)
+
+def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path: str, output_filename: str) -> str:
+    """Builds a complete 6-slide executive presentation video (Intro + 4 Content + Outro)."""
+    clips = []
+    temp_files = []
+
+    # 1. Title Slide
+    intro_img = "slide_intro.png"
+    intro_audio = "audio_intro.mp3"
+    temp_files.extend([intro_img, intro_audio])
+    create_title_slide(company_name, intro_img, prospect_logo_path)
+    generate_tts_elevenlabs(audit_data.get("intro_voiceover", f"Welcome to the digital performance review for {company_name}."), intro_audio)
+    
+    a_clip = AudioFileClip(intro_audio)
+    clips.append(ImageClip(intro_img).with_duration(a_clip.duration).with_audio(a_clip))
+
+    # 2. Content Slides (4 diagnostic parts)
+    for i, slide in enumerate(audit_data["video_script"]):
+        s_img = f"slide_{i}.png"
+        s_audio = f"audio_{i}.mp3"
+        temp_files.extend([s_img, s_audio])
         
-        create_slide_image(
-            slide_index=i,
-            title=slide["slide_title"],
-            text=slide["voiceover"],
-            output_path=slide_img,
-            logo_path="G:\\My Drive\\Elkins Revenue Consulting\\logo.png"
-        )
-        generate_tts_elevenlabs(slide["voiceover"], slide_audio)
+        create_body_slide(slide_index=i, title=slide["slide_title"], text=slide["voiceover"], output_path=s_img)
+        generate_tts_elevenlabs(slide["voiceover"], s_audio)
         
-        audio_clip = AudioFileClip(slide_audio)
-        img_clip = ImageClip(slide_img).with_duration(audio_clip.duration).with_audio(audio_clip)
-        clips.append(img_clip)
-        
+        a_clip = AudioFileClip(s_audio)
+        clips.append(ImageClip(s_img).with_duration(a_clip.duration).with_audio(a_clip))
+
+    # 3. Outro Slide
+    outro_img = "slide_outro.png"
+    outro_audio = "audio_outro.mp3"
+    temp_files.extend([outro_img, outro_audio])
+    create_outro_slide(outro_img)
+    generate_tts_elevenlabs(audit_data.get("outro_voiceover", f"Visit {CONFIG['AGENCY_WEBSITE']} to connect with our strategic team."), outro_audio)
+    
+    a_clip = AudioFileClip(outro_audio)
+    clips.append(ImageClip(outro_img).with_duration(a_clip.duration).with_audio(a_clip))
+
+    # Stitch Video
     final_video = concatenate_videoclips(clips, method="compose")
     final_video.write_videofile(output_filename, fps=24, codec="libx264", audio_codec="aac", logger=None)
-    
-    for i in range(len(video_slides)):
-        if os.path.exists(f"slide_{i}.png"): os.remove(f"slide_{i}.png")
-        if os.path.exists(f"audio_{i}.mp3"): os.remove(f"audio_{i}.mp3")
-        
+
+    # Cleanup temp slides & audio
+    for f in temp_files:
+        if os.path.exists(f): 
+            try: os.remove(f)
+            except Exception: pass
+            
+    if os.path.exists(prospect_logo_path):
+        try: os.remove(prospect_logo_path)
+        except Exception: pass
+
     return output_filename
+
 # ==============================================================================
-# 4. EMAIL TRANSMISSION
+# 5. EMAIL TRANSMISSION
 # ==============================================================================
 def send_prospect_email(to_email: str, subject: str, body: str, attachment_path: str):
-    """Sends the outreach email with the mp4 video directly attached."""
+    """Sends the outreach email with the mp4 video attached."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = CONFIG["SENDER_EMAIL"]
@@ -351,10 +521,7 @@ def send_prospect_email(to_email: str, subject: str, body: str, attachment_path:
         server.send_message(msg)
 
 # ==============================================================================
-# MAIN EXECUTION LOOP
-# ==============================================================================
-# ==============================================================================
-# MAIN EXECUTION LOOP
+# 6. MAIN EXECUTION & CSV APPENDING ENGINE
 # ==============================================================================
 def main():
     print("\n--- B2B Prospecting & Custom Video Pipeline ---")
@@ -365,7 +532,7 @@ def main():
     leads = find_businesses(category, location, limit=1)
     
     if not leads:
-        print("\n[TERMINATED] No leads were retrieved. Inspect the API messages above to resolve.")
+        print("\n[TERMINATED] No leads were retrieved. Inspect your search criteria or API status.")
         return
     
     records = []
@@ -375,17 +542,17 @@ def main():
         website = lead["website"]
         print(f"\nProcessing: {name} ({website})")
         
-        print("  -> Scraping website and social accounts...")
+        print("  -> Scraping website, discovering assets & footprint...")
         footprint = scrape_site_footprint(website)
         
-        print("  -> Performing digital audit & composing pitch via NRP endpoint...")
+        print("  -> Performing digital audit & drafting briefing via NRP cluster...")
         audit = audit_and_compose(lead, footprint)
         
         clean_name = re.sub(r'[^a-zA-Z0-9]', '', name)
         video_file = f"{clean_name}_audit_brief.mp4"
         
-        print("  -> Rendering custom 60-second video presentation...")
-        assemble_pitch_video(name, audit["video_script"], video_file)
+        print("  -> Rendering complete 6-slide video presentation with ElevenLabs...")
+        assemble_pitch_video(name, audit, footprint["logo_img_path"], video_file)
         
         email_recipient = footprint["email"]
         delivery_status = "Skipped (No Email)"
@@ -412,8 +579,13 @@ def main():
         })
         
     df = pd.DataFrame(records)
-    df.to_csv(CONFIG["OUTPUT_CSV"], index=False)
-    print(f"\n[SUCCESS] Execution complete. {len(records)} leads saved to '{CONFIG['OUTPUT_CSV']}'.")
+    csv_file = CONFIG["OUTPUT_CSV"]
+    
+    # Non-destructive CSV append
+    file_exists = os.path.exists(csv_file)
+    df.to_csv(csv_file, mode="a", header=not file_exists, index=False)
+    
+    print(f"\n[SUCCESS] Execution complete. Appended {len(records)} lead(s) to '{csv_file}'.")
 
 if __name__ == "__main__":
     main()
