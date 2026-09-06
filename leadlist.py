@@ -51,9 +51,9 @@ CONFIG = {
     "SENDER_EMAIL": "your-email@domain.com",
     "SENDER_PASSWORD": "your-app-password",
 
-    # Google Sheets Integration
+# Google Sheets Integration
     "GOOGLE_SHEET_NAME": "Prospecting Pipeline & Audit Data",
-    "GOOGLE_SHEETS_CREDENTIALS_JSON": "service_account.json",  # Path to Google service account key
+    "GOOGLE_SHEETS_CREDENTIALS_JSON": r"G:\My Drive\Elkins Revenue Consulting\AI Agent Scripts\Prospect Database\service_account.json",
     "FALLBACK_LOCAL_CSV": "prospecting_leads.csv",
 
     # Output Destination Directory for Rendered Videos
@@ -361,7 +361,7 @@ def draw_agency_brand(draw, img, content_x, header_y):
     draw.text((divider_x + 20, header_y + 7), sub_text, fill=STYLE["ACCENT_BLUE"], font=font_sub)
 
 def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect_logo_path: str):
-    """Renders executive white intro slide with method overview bullets."""
+    """Renders executive white intro slide with method overview bullets and an expanded eyebrow pill."""
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), color=STYLE["BG"])
     draw = ImageDraw.Draw(img)
@@ -379,16 +379,22 @@ def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect
     font_bullet = load_font(["arial.ttf", "segoeui.ttf"], 38)
     font_badge = load_font(["arialbd.ttf", "segoeuib.ttf"], 32)
 
-    # Wide Eyebrow Pill
+    # Significantly Expanded Eyebrow Pill Shading
     pill_y = header_y + 90
     pill_text = "CONFIDENTIAL EXECUTIVE BRIEFING · RESEARCH & STRATEGY"
     bbox_pill = draw.textbbox((0, 0), pill_text, font=font_pill)
-    pw = (bbox_pill[2] - bbox_pill[0]) + 48
-    draw.rounded_rectangle([content_x, pill_y, content_x + pw, pill_y + 44], radius=10, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
-    draw.text((content_x + 24, pill_y + 9), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
+    text_w = bbox_pill[2] - bbox_pill[0]
+    
+    # 60px padding on each side (120px total extra width)
+    pill_padding_x = 60
+    pill_w = text_w + (pill_padding_x * 2)
+    pill_h = 52
+    
+    draw.rounded_rectangle([content_x, pill_y, content_x + pill_w, pill_y + pill_h], radius=12, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
+    draw.text((content_x + pill_padding_x, pill_y + 13), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
 
     # Prospect Logo or Pill
-    logo_y = pill_y + 75
+    logo_y = pill_y + pill_h + 30
     placed_prospect_logo = False
     if os.path.exists(prospect_logo_path):
         try:
@@ -421,15 +427,15 @@ def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect
     render_bullets = bullets if bullets and len(bullets) >= 3 else fallback_bullets
 
     for b in render_bullets[:3]:
-        # Bullet Dot
         draw.ellipse([content_x + 4, bullet_y + 12, content_x + 20, bullet_y + 28], fill=STYLE["ACCENT_BLUE"])
         draw.text((content_x + 40, bullet_y), b, fill=STYLE["TEXT_MAIN"], font=font_bullet)
         bullet_y += 58
 
     img.save(output_path)
 
+
 def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str):
-    """Renders executive diagnostic body slides with bullet points."""
+    """Renders executive diagnostic body slides with wide-pill eyebrow shading."""
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), color=STYLE["BG"])
     draw = ImageDraw.Draw(img)
@@ -447,26 +453,30 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
     header_y = margin_y + 60
     draw_agency_brand(draw, img, content_x, header_y)
 
-    # Dynamic Wide Eyebrow Pill (Accommodates any label length)
+    # Significantly Expanded Eyebrow Pill Shading
     pill_y = header_y + 90
     pill_text = eyebrow.upper()
     bbox = draw.textbbox((0, 0), pill_text, font=font_pill)
-    pill_w = (bbox[2] - bbox[0]) + 48
-    draw.rounded_rectangle([content_x, pill_y, content_x + pill_w, pill_y + 44], radius=8, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
-    draw.text((content_x + 24, pill_y + 9), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
+    text_w = bbox[2] - bbox[0]
+    
+    # 60px padding on each side (120px total extra width)
+    pill_padding_x = 60
+    pill_w = text_w + (pill_padding_x * 2)
+    pill_h = 52
+    
+    draw.rounded_rectangle([content_x, pill_y, content_x + pill_w, pill_y + pill_h], radius=10, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
+    draw.text((content_x + pill_padding_x, pill_y + 13), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
 
     # Main Slide Title
-    title_y = pill_y + 75
+    title_y = pill_y + pill_h + 30
     draw.text((content_x, title_y), title, fill=STYLE["TEXT_MAIN"], font=font_title)
     draw.line((content_x, title_y + 95, content_x + 240, title_y + 95), fill=STYLE["ACCENT_BLUE"], width=6)
 
     # Render Summary Bullets
     bullet_y = title_y + 150
     for b in bullets[:4]:
-        # Bullet indicator dot
         draw.ellipse([content_x + 4, bullet_y + 16, content_x + 22, bullet_y + 34], fill=STYLE["ACCENT_BLUE"])
         
-        # Word wrap bullet point text to prevent overflow
         words = b.split()
         lines, current_line = [], []
         for w in words:
@@ -489,7 +499,6 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
     draw.text((W - margin_x - 380, footer_y), CONFIG.get("AGENCY_WEBSITE", "WWW.ELKINSREVENUE.COM").upper(), fill=STYLE["ACCENT_BLUE"], font=font_footer)
 
     img.save(output_path)
-
 def create_outro_slide(output_path: str):
     """Renders clean contact closing slide."""
     W, H = 1920, 1080
