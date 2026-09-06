@@ -51,7 +51,7 @@ CONFIG = {
     "SENDER_EMAIL": "your-email@domain.com",
     "SENDER_PASSWORD": "your-app-password",
 
-# Google Sheets Integration
+    # Google Sheets Integration
     "GOOGLE_SHEET_NAME": "Prospecting Pipeline & Audit Data",
     "GOOGLE_SHEETS_CREDENTIALS_JSON": r"G:\My Drive\Elkins Revenue Consulting\AI Agent Scripts\Prospect Database\service_account.json",
     "FALLBACK_LOCAL_CSV": "prospecting_leads.csv",
@@ -254,10 +254,11 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
     Website Text Sample: {footprint['content_snippet']}
     
     CRITICAL PRESENTATION RULES:
-    1. The 'intro_voiceover' MUST state:
-       - What was examined during the preliminary research (speed, capture friction, SEO, mobile compatibility).
-       - What the presentation reveals (the single primary bottleneck draining revenue and customer inquiries).
-       - What is proposed at the conclusion (an immediate, friction-free strategic roadmap to resolve it).
+    1. The 'intro_voiceover' MUST:
+       - Open with this explanation: "We took a look at your current available digital marketing approach and think we can help you do better."
+       - Follow with what was examined during our preliminary research (page load speed, conversion capture friction, search visibility, and mobile compatibility).
+       - State what the presentation reveals (the primary bottleneck draining revenue and inbound inquiries).
+       - Preview what is proposed at the conclusion (an immediate, friction-free strategic roadmap to resolve it).
     2. SLIDE TEXT MUST NOT MATCH SPOKEN AUDIO:
        - 'bullets' MUST be an array of 3 concise, punchy bullet points (max 10-12 words each) summarizing key takeaways.
        - 'voiceover' is the full executive narrative spoken by the narrator (~15-18 seconds per slide).
@@ -277,7 +278,7 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
       "solution": "<targeted strategic revenue solution>",
       "email_subject": "<custom subject line>",
       "email_body": "<under 120 words referencing audit and attached video>",
-      "intro_voiceover": "<Spoken audio explaining: research conducted, what we show today, and proposal at end>",
+      "intro_voiceover": "We took a look at your current available digital marketing approach and think we can help you do better. <Spoken audio explaining research conducted, key bottleneck identified, and the roadmap proposed at the end>",
       "intro_bullets": [
          "Audited website performance, lead flow & search visibility",
          "Pinpointed key leakage point hurting buyer conversions",
@@ -361,7 +362,7 @@ def draw_agency_brand(draw, img, content_x, header_y):
     draw.text((divider_x + 20, header_y + 7), sub_text, fill=STYLE["ACCENT_BLUE"], font=font_sub)
 
 def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect_logo_path: str):
-    """Renders executive white intro slide with method overview bullets and an expanded eyebrow pill."""
+    """Renders executive white intro slide with method overview bullets and properly bounded eyebrow badges."""
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), color=STYLE["BG"])
     draw = ImageDraw.Draw(img)
@@ -379,13 +380,12 @@ def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect
     font_bullet = load_font(["arial.ttf", "segoeui.ttf"], 38)
     font_badge = load_font(["arialbd.ttf", "segoeuib.ttf"], 32)
 
-    # Significantly Expanded Eyebrow Pill Shading
+    # Executive Briefing Pill Shading
     pill_y = header_y + 90
     pill_text = "CONFIDENTIAL EXECUTIVE BRIEFING · RESEARCH & STRATEGY"
     bbox_pill = draw.textbbox((0, 0), pill_text, font=font_pill)
     text_w = bbox_pill[2] - bbox_pill[0]
     
-    # 60px padding on each side (120px total extra width)
     pill_padding_x = 60
     pill_w = text_w + (pill_padding_x * 2)
     pill_h = 52
@@ -393,7 +393,7 @@ def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect
     draw.rounded_rectangle([content_x, pill_y, content_x + pill_w, pill_y + pill_h], radius=12, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
     draw.text((content_x + pill_padding_x, pill_y + 13), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
 
-    # Prospect Logo or Pill
+    # Prospect Logo or Wide "PROSPECT AUDIT" Eyebrow Badge
     logo_y = pill_y + pill_h + 30
     placed_prospect_logo = False
     if os.path.exists(prospect_logo_path):
@@ -406,8 +406,25 @@ def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect
             pass
 
     if not placed_prospect_logo:
-        draw.rounded_rectangle([content_x, logo_y, content_x + 240, logo_y + 60], radius=8, fill=STYLE["CARD_BORDER"])
-        draw.text((content_x + 26, logo_y + 12), "PROSPECT AUDIT", fill=STYLE["TEXT_FAINT"], font=font_badge)
+        # Dynamically measure text and provide generous horizontal padding so words fit completely inside
+        badge_text = "PROSPECT AUDIT"
+        bbox_badge = draw.textbbox((0, 0), badge_text, font=font_badge)
+        badge_text_w = bbox_badge[2] - bbox_badge[0]
+        badge_text_h = bbox_badge[3] - bbox_badge[1]
+        
+        badge_pad_x = 44  # Generous padding on left and right
+        badge_pad_y = 14
+        badge_w = badge_text_w + (badge_pad_x * 2)
+        badge_h = badge_text_h + (badge_pad_y * 2)
+        
+        draw.rounded_rectangle(
+            [content_x, logo_y, content_x + badge_w, logo_y + badge_h],
+            radius=10,
+            fill=STYLE["CARD_BORDER"],
+            outline=STYLE["DIVIDER"],
+            width=1
+        )
+        draw.text((content_x + badge_pad_x, logo_y + badge_pad_y), badge_text, fill=STYLE["TEXT_FAINT"], font=font_badge)
 
     # Title & Subtitle
     title_y = logo_y + 90
@@ -453,13 +470,12 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
     header_y = margin_y + 60
     draw_agency_brand(draw, img, content_x, header_y)
 
-    # Significantly Expanded Eyebrow Pill Shading
+    # Expanded Eyebrow Pill Shading
     pill_y = header_y + 90
     pill_text = eyebrow.upper()
     bbox = draw.textbbox((0, 0), pill_text, font=font_pill)
     text_w = bbox[2] - bbox[0]
     
-    # 60px padding on each side (120px total extra width)
     pill_padding_x = 60
     pill_w = text_w + (pill_padding_x * 2)
     pill_h = 52
@@ -499,6 +515,7 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
     draw.text((W - margin_x - 380, footer_y), CONFIG.get("AGENCY_WEBSITE", "WWW.ELKINSREVENUE.COM").upper(), fill=STYLE["ACCENT_BLUE"], font=font_footer)
 
     img.save(output_path)
+
 def create_outro_slide(output_path: str):
     """Renders clean contact closing slide."""
     W, H = 1920, 1080
@@ -600,7 +617,14 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
     intro_audio = "audio_intro.mp3"
     temp_files.extend([intro_img, intro_audio])
     create_title_slide(company_name, audit_data.get("intro_bullets", []), intro_img, prospect_logo_path)
-    generate_voiceover(audit_data.get("intro_voiceover", f"Welcome. In this briefing we review the digital baseline and revenue performance for {company_name}."), intro_audio)
+    
+    # Narrative default audio incorporating the requested explanation sentence
+    default_intro = (
+        f"We took a look at your current available digital marketing approach and think we can help you do better. "
+        f"In this brief executive session, we review the digital baseline and revenue performance for {company_name}, "
+        f"highlight specific friction points hurting conversions, and outline a high-impact roadmap to resolve them."
+    )
+    generate_voiceover(audit_data.get("intro_voiceover", default_intro), intro_audio)
 
     a_clip = AudioFileClip(intro_audio)
     clips.append(ImageClip(intro_img).with_duration(a_clip.duration).with_audio(a_clip))
@@ -659,7 +683,19 @@ def save_records_to_google_sheet(records: list):
         return
 
     df = pd.DataFrame(records)
-    creds_file = CONFIG.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
+    creds_file = CONFIG.get("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+
+    # Diagnostic checks
+    print("\n--- GOOGLE SHEETS DIAGNOSTIC ---")
+    print(f"1. GSPREAD_AVAILABLE: {GSPREAD_AVAILABLE}")
+    print(f"2. Creds File Path:   {repr(creds_file)}")
+    print(f"3. File Exists Check: {os.path.exists(creds_file) if creds_file else False}")
+    print("--------------------------------\n")
+
+    if not GSPREAD_AVAILABLE:
+        print("[DIAGNOSTIC REASON] gspread or oauth2client failed to import.")
+    elif not os.path.exists(creds_file):
+        print(f"[DIAGNOSTIC REASON] Python cannot find the file at: {creds_file}")
 
     if GSPREAD_AVAILABLE and os.path.exists(creds_file):
         try:
@@ -674,20 +710,20 @@ def save_records_to_google_sheet(records: list):
                 spreadsheet = client.create(sheet_name)
                 sheet = spreadsheet.sheet1
             
-            # Prepare rows
             existing_values = sheet.get_all_values()
             headers = list(df.columns)
             
             if not existing_values:
-                # New sheet: add headers and rows
                 sheet.append_row(headers)
             
-            rows = df.values.tolist()
+            # Convert non-serializable objects (like Path) to strings
+            clean_df = df.astype(str)
+            rows = clean_df.values.tolist()
             sheet.append_rows(rows)
             print(f"\n[GOOGLE SHEETS] Successfully appended {len(records)} record(s) to '{sheet_name}'.")
             return
         except Exception as e:
-            print(f"\n[GOOGLE SHEETS ERROR] Failed syncing with Google Sheets: {e}")
+            print(f"\n[GOOGLE SHEETS ERROR] Failed communicating with Google Sheets: {e}")
             print("Falling back to local CSV append...")
 
     # Fallback to Local CSV
