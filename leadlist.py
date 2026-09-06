@@ -61,18 +61,18 @@ def find_businesses(category: str, location: str, limit: int = 1) -> list:
         "X-Goog-FieldMask": "places.displayName,places.websiteUri,places.formattedAddress,places.rating,places.userRatingCount"
     }
     payload = {"textQuery": f"{category} in {location}", "maxResultCount": limit}
-    
+
     try:
         res = requests.post(url, headers=headers, json=payload)
         if res.status_code != 200:
             print(f"\n[Google Places API Error {res.status_code}]: {res.text}")
             return []
-            
+
         data = res.json()
         if "places" not in data or len(data["places"]) == 0:
             print(f"\n[INFO] No places returned by Google for query: '{category} in {location}'.")
             return []
-            
+
         leads = []
         for place in data.get("places", []):
             leads.append({
@@ -88,7 +88,101 @@ def find_businesses(category: str, location: str, limit: int = 1) -> list:
         print(f"\n[Network Error during Places API call]: {e}")
         return []
 
-scrape_site_footprint
+
+def scrape_site_footprint(website_url: str) -> dict:
+    """Scrapes homepage HTML for emails, social links, logo, technical SEO, and conversion friction."""
+    details = {
+        "email": "Not Listed",
+        "social_links": [],
+        "load_speed_sec": 0.0,
+        "content_snippet": "",
+        "missing_elements": [],
+        "has_lead_form": False,
+        "has_click_to_call": False,
+        "has_schema": False,
+        "has_meta_desc": False,
+        "is_mobile_responsive": False,
+        "logo_img_path": "prospect_logo_temp.png"
+    }
+    if not website_url:
+        return details
+
+    try:
+        start_time = requests.compat.time.time()
+        resp = requests.get(website_url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        load_time = round(requests.compat.time.time() - start_time, 2)
+        details["load_speed_sec"] = load_time
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # 1. Public email discovery
+        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resp.text)
+        valid_emails = [e for e in emails if not e.endswith(('.png', '.jpg', '.webp', '.svg'))]
+        if valid_emails:
+            details["email"] = valid_emails[0]
+
+        # 2. Social links discovery
+        for link in soup.find_all("a", href=True):
+            href = link["href"].lower()
+            for platform in ["facebook.com", "instagram.com", "linkedin.com", "youtube.com", "tiktok.com"]:
+                if platform in href and href not in details["social_links"]:
+                    details["social_links"].append(href)
+
+        # 3. Conversion & Lead Capture checks
+        has_form = bool(soup.find_all("form"))
+        details["has_lead_form"] = has_form
+        if not has_form:
+            details["missing_elements"].append("No Direct Lead Capture Form")
+
+        has_tel = bool(soup.find("a", href=re.compile(r"^tel:")))
+        details["has_click_to_call"] = has_tel
+        if not has_tel:
+            details["missing_elements"].append("No Tap-to-Call Link")
+
+        # 4. Technical SEO & Schema checks
+        if not soup.find_all("h1"):
+            details["missing_elements"].append("Missing H1 Header")
+
+        meta_desc = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
+        has_desc = bool(meta_desc and meta_desc.get("content", "").strip())
+        details["has_meta_desc"] = has_desc
+        if not has_desc:
+            details["missing_elements"].append("Missing Meta Description")
+
+        schema_tags = soup.find_all("script", type="application/ld+json")
+        has_schema = any("schema.org" in tag.text.lower() for tag in schema_tags)
+        details["has_schema"] = has_schema
+        if not has_schema:
+            details["missing_elements"].append("Missing Structured Schema (JSON-LD)")
+
+        viewport = soup.find("meta", attrs={"name": re.compile(r"^viewport$", re.I)})
+        details["is_mobile_responsive"] = bool(viewport)
+        if not viewport:
+            details["missing_elements"].append("Missing Mobile Viewport Tag")
+
+        body_text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2'])])
+        details["content_snippet"] = body_text[:1500]
+
+        # 5. Scrape prospect logo / icon
+        logo_url = None
+        icon_tag = soup.find("link", rel=lambda x: x and ("icon" in x.lower() or "apple-touch-icon" in x.lower()))
+        if icon_tag and icon_tag.get("href"):
+            logo_url = urljoin(website_url, icon_tag["href"])
+        else:
+            img_tag = soup.find("img", src=lambda x: x and any(k in x.lower() for k in ["logo", "brand", "header"]))
+            if img_tag and img_tag.get("src"):
+                logo_url = urljoin(website_url, img_tag["src"])
+
+        if logo_url:
+            r_img = requests.get(logo_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+            if r_img.status_code == 200 and len(r_img.content) > 500:
+                with open(details["logo_img_path"], "wb") as f:
+                    f.write(r_img.content)
+
+    except Exception:
+        details["missing_elements"].append("Website Inaccessible/Slow")
+
+    return details
 # ==============================================================================
 # 2. AUDIT & OUTREACH COMPOSITION (NRP CLUSTER)
 # ==============================================================================
@@ -362,12 +456,13 @@ def create_outro_slide(output_path: str):
     img.save(output_path)
 
 # ==============================================================================
-# 4. ELEVENLABS AUDIO & VIDEO COMPILATION
+# 4. ELEVENLABS / GOOGLE AUDIO & VIDEO COMPILATION
 # ==============================================================================
 def generate_tts_google(text: str, output_audio_path: str):
     """Generates free scratch-track voiceover via Google TTS."""
     tts = gTTS(text=text, lang="en", tld="com", slow=False)
     tts.save(output_audio_path)
+
 
 def generate_voiceover(text: str, output_audio_path: str):
     """Routes voiceover generation based on CONFIG['TTS_ENGINE']."""
@@ -376,10 +471,11 @@ def generate_voiceover(text: str, output_audio_path: str):
     if engine == "elevenlabs":
         api_key = os.getenv("ELEVENLABS_KEY") or CONFIG.get("ELEVENLABS_KEY")
         if not api_key or "your-" in api_key:
-            print("  [WARN] Invalid ElevenLabs key; falling back to Google TTS.")
+            print("    [VOICE] ElevenLabs key missing/invalid -> Falling back to Google TTS (Free)")
             generate_tts_google(text, output_audio_path)
             return
 
+        print("    [VOICE] Rendering with ElevenLabs (Paid Credits)...")
         voice_id = CONFIG.get("VOICE_ID", "nPczCjzI2devNBz1zQrb")
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         headers = {
@@ -403,8 +499,9 @@ def generate_voiceover(text: str, output_audio_path: str):
         with open(output_audio_path, "wb") as f:
             f.write(res.content)
     else:
-        # Default: Free Google TTS
+        print("    [VOICE] Rendering with Google TTS (Free Preview)...")
         generate_tts_google(text, output_audio_path)
+
 
 def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path: str, output_filename: str) -> str:
     """Builds a complete 6-slide executive presentation video (Intro + 4 Content + Outro)."""
@@ -416,8 +513,8 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
     intro_audio = "audio_intro.mp3"
     temp_files.extend([intro_img, intro_audio])
     create_title_slide(company_name, intro_img, prospect_logo_path)
-    generate_voiceover(audit_data.get("intro_voiceover", f"Welcome to the digital performance review for {company_name}."), intro_audio) 
-    
+    generate_voiceover(audit_data.get("intro_voiceover", f"Welcome to the digital performance review for {company_name}."), intro_audio)
+
     a_clip = AudioFileClip(intro_audio)
     clips.append(ImageClip(intro_img).with_duration(a_clip.duration).with_audio(a_clip))
 
@@ -426,10 +523,10 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
         s_img = f"slide_{i}.png"
         s_audio = f"audio_{i}.mp3"
         temp_files.extend([s_img, s_audio])
-        
+
         create_body_slide(slide_index=i, title=slide["slide_title"], text=slide["voiceover"], output_path=s_img)
         generate_voiceover(slide["voiceover"], s_audio)
-        
+
         a_clip = AudioFileClip(s_audio)
         clips.append(ImageClip(s_img).with_duration(a_clip.duration).with_audio(a_clip))
 
@@ -439,7 +536,7 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
     temp_files.extend([outro_img, outro_audio])
     create_outro_slide(outro_img)
     generate_voiceover(audit_data.get("outro_voiceover", f"Visit {CONFIG['AGENCY_WEBSITE']} to connect with our strategic team."), outro_audio)
-    
+
     a_clip = AudioFileClip(outro_audio)
     clips.append(ImageClip(outro_img).with_duration(a_clip.duration).with_audio(a_clip))
 
@@ -449,16 +546,19 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
 
     # Cleanup temp slides & audio
     for f in temp_files:
-        if os.path.exists(f): 
-            try: os.remove(f)
-            except Exception: pass
-            
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+
     if os.path.exists(prospect_logo_path):
-        try: os.remove(prospect_logo_path)
-        except Exception: pass
+        try:
+            os.remove(prospect_logo_path)
+        except Exception:
+            pass
 
     return output_filename
-
 # ==============================================================================
 # 5. EMAIL TRANSMISSION
 # ==============================================================================
