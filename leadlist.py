@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from urllib.parse import urlparse, urljoin
 import requests
 import pandas as pd
+from gtts import gTTS
 from bs4 import BeautifulSoup
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
@@ -22,17 +23,19 @@ CONFIG = {
     # Google Places API (New)
     "GOOGLE_PLACES_KEY": os.getenv("GOOGLE_PLACES_KEY"),
     
-    # ElevenLabs Audio Settings
+    # TTS Settings: "google" (free preview) or "elevenlabs" (final production)
+    "TTS_ENGINE": os.getenv("TTS_ENGINE", "google"),
     "ELEVENLABS_KEY": os.getenv("ELEVENLABS_KEY", "your-elevenlabs-key"),
     "VOICE_ID": "nPczCjzI2devNBz1zQrb",  # Brian (Executive Narrative)
-    
-    # Brand Identity & Contact Assets
+
+# Brand Identity & Contact Assets
+    "BRAND_PRIMARY": "ELKINS & CO.",
+    "BRAND_SUBTITLE": "REVENUE STRATEGIES",
     "AGENCY_NAME": "ELKINS & CO · REVENUE STRATEGIES",
     "AGENCY_PHONE": "917-327-0636",
-    "AGENCY_EMAIL": "lorren@smartlocalbots.com",
+    "AGENCY_EMAIL": "lorren@elkinsrevenue.com",
     "AGENCY_WEBSITE": "www.elkinsrevenue.com",
-    "LOGO_PATH": "G:\\My Drive\\Elkins Revenue Consulting\\logo.png",
-    
+      
     # Email SMTP Settings
     "SMTP_SERVER": "smtp.gmail.com",
     "SMTP_PORT": 465,
@@ -216,29 +219,29 @@ def load_font(font_name_list, size):
             continue
     return ImageFont.load_default()
 
-def draw_agency_brand(draw, img, content_x, header_y, logo_path):
-    """Draws agency logo or Kinetic Pulse emblem in the top left."""
-    BG_CARD_BORDER = (51, 65, 85)
+def draw_agency_brand(draw, img, content_x, header_y):
+    """Renders the text-based brand mark matching the website identity."""
+    TEXT_WHITE = (255, 255, 255)
     ACCENT_BLUE = (37, 99, 235)
     SLATE_GRAY = (148, 163, 184)
-    font_brand = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
+    DIVIDER_COLOR = (71, 85, 105)
 
-    if os.path.exists(logo_path):
-        try:
-            logo = Image.open(logo_path).convert("RGBA")
-            logo.thumbnail((260, 65), Image.Resampling.LANCZOS)
-            img.paste(logo, (content_x, header_y), logo)
-            brand_text_x = content_x + logo.width + 30
-        except Exception:
-            brand_text_x = content_x
-    else:
-        # Kinetic Pulse Graph Bar Fallback
-        draw.rectangle([content_x, header_y + 20, content_x + 10, header_y + 44], fill=SLATE_GRAY)
-        draw.rectangle([content_x + 16, header_y + 12, content_x + 26, header_y + 44], fill=BG_CARD_BORDER)
-        draw.rectangle([content_x + 32, header_y, content_x + 42, header_y + 44], fill=ACCENT_BLUE)
-        brand_text_x = content_x + 65
+    font_main = load_font(["arialbd.ttf", "segoeuib.ttf", "helvetica.ttf"], 30)
+    font_sub = load_font(["arialbd.ttf", "segoeuib.ttf", "helvetica.ttf"], 20)
 
-    draw.text((brand_text_x, header_y + 6), CONFIG["AGENCY_NAME"], fill=SLATE_GRAY, font=font_brand)
+    # 1. Primary Name: "ELKINS & CO."
+    primary_text = CONFIG.get("BRAND_PRIMARY", "ELKINS & CO.")
+    draw.text((content_x, header_y), primary_text, fill=TEXT_WHITE, font=font_main)
+    bbox_main = draw.textbbox((content_x, header_y), primary_text, font=font_main)
+    main_w = bbox_main[2] - bbox_main[0]
+
+    # 2. Vertical Divider
+    divider_x = content_x + main_w + 20
+    draw.line([(divider_x, header_y + 4), (divider_x, header_y + 32)], fill=DIVIDER_COLOR, width=2)
+
+    # 3. Strategy Subtitle: "REVENUE STRATEGIES"
+    sub_text = CONFIG.get("BRAND_SUBTITLE", "REVENUE STRATEGIES")
+    draw.text((divider_x + 20, header_y + 7), sub_text, fill=ACCENT_BLUE, font=font_sub)
 
 def create_title_slide(lead_name: str, output_path: str, prospect_logo_path: str):
     """Renders the executive title slide with co-branded badges and audit title."""
@@ -255,7 +258,7 @@ def create_title_slide(lead_name: str, output_path: str, prospect_logo_path: str
 
     content_x = margin_x + 100
     header_y = margin_y + 60
-    draw_agency_brand(draw, img, content_x, header_y, CONFIG["LOGO_PATH"])
+    draw_agency_brand(draw, img, content_x, header_y)
 
     font_pill = load_font(["arialbd.ttf", "segoeuib.ttf"], 24)
     font_main_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 70)
@@ -316,7 +319,7 @@ def create_body_slide(slide_index: int, title: str, text: str, output_path: str)
     content_x = margin_x + 100
     content_max_w = W - margin_x - 100
     header_y = margin_y + 60
-    draw_agency_brand(draw, img, content_x, header_y, CONFIG["LOGO_PATH"])
+    draw_agency_brand(draw, img, content_x, header_y)
 
     # Slide Category Pill
     pill_y = header_y + 105
@@ -359,7 +362,7 @@ def create_body_slide(slide_index: int, title: str, text: str, output_path: str)
     footer_y = H - margin_y - 70
     draw.line((content_x, footer_y - 20, content_max_w, footer_y - 20), fill=CARD_BORDER, width=1)
     draw.text((content_x, footer_y), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=SLATE_GRAY, font=font_footer)
-    draw.text((W - margin_x - 380, footer_y), CONFIG["AGENCY_WEBSITE"].upper(), fill=ACCENT_BLUE, font=font_footer)
+    draw.text((W - margin_x - 380, footer_y), CONFIG.get("AGENCY_WEBSITE", "WWW.ELKINSREVENUE.COM").upper(), fill=ACCENT_BLUE, font=font_footer)
 
     img.save(output_path)
 
@@ -383,7 +386,7 @@ def create_outro_slide(output_path: str):
 
     content_x = margin_x + 100
     header_y = margin_y + 60
-    draw_agency_brand(draw, img, content_x, header_y, CONFIG["LOGO_PATH"])
+    draw_agency_brand(draw, img, content_x, header_y)
 
     title_y = header_y + 140
     draw.text((content_x, title_y), "Ready to Eliminate Digital Leakage?", fill=TEXT_WHITE, font=font_title)
@@ -415,36 +418,47 @@ def create_outro_slide(output_path: str):
 # ==============================================================================
 # 4. ELEVENLABS AUDIO & VIDEO COMPILATION
 # ==============================================================================
-def generate_tts_elevenlabs(text: str, output_audio_path: str):
-    """Generates studio-grade voiceover via ElevenLabs Turbo 2.5."""
-    api_key = os.getenv("ELEVENLABS_KEY") or CONFIG.get("ELEVENLABS_KEY")
-    if not api_key or "your-" in api_key:
-        raise ValueError("Missing valid ElevenLabs API key.")
+def generate_tts_google(text: str, output_audio_path: str):
+    """Generates free scratch-track voiceover via Google TTS."""
+    tts = gTTS(text=text, lang="en", tld="com", slow=False)
+    tts.save(output_audio_path)
 
-    voice_id = CONFIG.get("VOICE_ID", "nPczCjzI2devNBz1zQrb")
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+def generate_voiceover(text: str, output_audio_path: str):
+    """Routes voiceover generation based on CONFIG['TTS_ENGINE']."""
+    engine = CONFIG.get("TTS_ENGINE", "google").lower()
 
-    headers = {
-        "xi-api-key": api_key,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "text": text,
-        "model_id": "eleven_turbo_v2_5",
-        "voice_settings": {
-            "stability": 0.45,
-            "similarity_boost": 0.80,
-            "style": 0.20,
-            "use_speaker_boost": True
+    if engine == "elevenlabs":
+        api_key = os.getenv("ELEVENLABS_KEY") or CONFIG.get("ELEVENLABS_KEY")
+        if not api_key or "your-" in api_key:
+            print("  [WARN] Invalid ElevenLabs key; falling back to Google TTS.")
+            generate_tts_google(text, output_audio_path)
+            return
+
+        voice_id = CONFIG.get("VOICE_ID", "nPczCjzI2devNBz1zQrb")
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        headers = {
+            "xi-api-key": api_key,
+            "Content-Type": "application/json"
         }
-    }
+        payload = {
+            "text": text,
+            "model_id": "eleven_turbo_v2_5",
+            "voice_settings": {
+                "stability": 0.45,
+                "similarity_boost": 0.80,
+                "style": 0.20,
+                "use_speaker_boost": True
+            }
+        }
+        res = requests.post(url, headers=headers, json=payload)
+        if res.status_code != 200:
+            raise RuntimeError(f"ElevenLabs API Error {res.status_code}: {res.text}")
 
-    res = requests.post(url, headers=headers, json=payload)
-    if res.status_code != 200:
-        raise RuntimeError(f"ElevenLabs API Error {res.status_code}: {res.text}")
-
-    with open(output_audio_path, "wb") as f:
-        f.write(res.content)
+        with open(output_audio_path, "wb") as f:
+            f.write(res.content)
+    else:
+        # Default: Free Google TTS
+        generate_tts_google(text, output_audio_path)
 
 def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path: str, output_filename: str) -> str:
     """Builds a complete 6-slide executive presentation video (Intro + 4 Content + Outro)."""
@@ -456,7 +470,7 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
     intro_audio = "audio_intro.mp3"
     temp_files.extend([intro_img, intro_audio])
     create_title_slide(company_name, intro_img, prospect_logo_path)
-    generate_tts_elevenlabs(audit_data.get("intro_voiceover", f"Welcome to the digital performance review for {company_name}."), intro_audio)
+    generate_voiceover(audit_data.get("intro_voiceover", f"Welcome to the digital performance review for {company_name}."), intro_audio) 
     
     a_clip = AudioFileClip(intro_audio)
     clips.append(ImageClip(intro_img).with_duration(a_clip.duration).with_audio(a_clip))
@@ -468,7 +482,7 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
         temp_files.extend([s_img, s_audio])
         
         create_body_slide(slide_index=i, title=slide["slide_title"], text=slide["voiceover"], output_path=s_img)
-        generate_tts_elevenlabs(slide["voiceover"], s_audio)
+        generate_voiceover(slide["voiceover"], s_audio)
         
         a_clip = AudioFileClip(s_audio)
         clips.append(ImageClip(s_img).with_duration(a_clip.duration).with_audio(a_clip))
@@ -478,7 +492,7 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
     outro_audio = "audio_outro.mp3"
     temp_files.extend([outro_img, outro_audio])
     create_outro_slide(outro_img)
-    generate_tts_elevenlabs(audit_data.get("outro_voiceover", f"Visit {CONFIG['AGENCY_WEBSITE']} to connect with our strategic team."), outro_audio)
+    generate_voiceover(audit_data.get("outro_voiceover", f"Visit {CONFIG['AGENCY_WEBSITE']} to connect with our strategic team."), outro_audio)
     
     a_clip = AudioFileClip(outro_audio)
     clips.append(ImageClip(outro_img).with_duration(a_clip.duration).with_audio(a_clip))
@@ -525,6 +539,9 @@ def send_prospect_email(to_email: str, subject: str, body: str, attachment_path:
 # ==============================================================================
 def main():
     print("\n--- B2B Prospecting & Custom Video Pipeline ---")
+    mode_choice = input("Select audio mode: [1] Free Preview (Google)  [2] Final Production (ElevenLabs): ").strip()
+    CONFIG["TTS_ENGINE"] = "elevenlabs" if mode_choice == "2" else "google"
+    print(f"-> Active Voice Engine: {CONFIG['TTS_ENGINE'].upper()}")
     category = input("Enter target business category (e.g., HVAC, Locksmith, Event Planner): ").strip()
     location = input("Enter target geographic region (e.g., Naples FL, Denver CO): ").strip()
     
