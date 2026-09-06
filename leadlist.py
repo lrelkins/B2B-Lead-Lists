@@ -88,70 +88,7 @@ def find_businesses(category: str, location: str, limit: int = 1) -> list:
         print(f"\n[Network Error during Places API call]: {e}")
         return []
 
-def scrape_site_footprint(website_url: str) -> dict:
-    """Scrapes homepage HTML for emails, social links, logo, and performance indicators."""
-    details = {
-        "email": "Not Listed",
-        "social_links": [],
-        "load_speed_sec": 0.0,
-        "content_snippet": "",
-        "missing_elements": [],
-        "logo_img_path": "prospect_logo_temp.png"
-    }
-    if not website_url:
-        return details
-        
-    try:
-        start_time = requests.compat.time.time()
-        resp = requests.get(website_url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-        load_time = round(requests.compat.time.time() - start_time, 2)
-        details["load_speed_sec"] = load_time
-        
-        soup = BeautifulSoup(resp.text, "html.parser")
-        
-        # Public email discovery
-        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resp.text)
-        valid_emails = [e for e in emails if not e.endswith(('.png', '.jpg', '.webp', '.svg'))]
-        if valid_emails:
-            details["email"] = valid_emails[0]
-            
-        # Social links discovery
-        for link in soup.find_all("a", href=True):
-            href = link["href"].lower()
-            for platform in ["facebook.com", "instagram.com", "linkedin.com", "youtube.com", "tiktok.com"]:
-                if platform in href and href not in details["social_links"]:
-                    details["social_links"].append(href)
-                    
-        # UX & Technical elements
-        if not soup.find_all("h1"):
-            details["missing_elements"].append("Missing H1 Header")
-        if not re.search(r'href=["\']tel:', resp.text):
-            details["missing_elements"].append("No Tap-to-Call Link")
-            
-        body_text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2'])])
-        details["content_snippet"] = body_text[:1500]
-
-        # Scrape prospect logo or high-res icon
-        logo_url = None
-        icon_tag = soup.find("link", rel=lambda x: x and ("icon" in x.lower() or "apple-touch-icon" in x.lower()))
-        if icon_tag and icon_tag.get("href"):
-            logo_url = urljoin(website_url, icon_tag["href"])
-        else:
-            img_tag = soup.find("img", src=lambda x: x and any(k in x.lower() for k in ["logo", "brand", "header"]))
-            if img_tag and img_tag.get("src"):
-                logo_url = urljoin(website_url, img_tag["src"])
-
-        if logo_url:
-            r_img = requests.get(logo_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
-            if r_img.status_code == 200 and len(r_img.content) > 500:
-                with open(details["logo_img_path"], "wb") as f:
-                    f.write(r_img.content)
-
-    except Exception:
-        details["missing_elements"].append("Website Inaccessible/Slow")
-        
-    return details
-
+scrape_site_footprint
 # ==============================================================================
 # 2. AUDIT & OUTREACH COMPOSITION (NRP CLUSTER)
 # ==============================================================================
@@ -171,12 +108,19 @@ def call_nrp_llm(prompt: str) -> str:
     return res.json()["choices"][0]["message"]["content"]
 
 def audit_and_compose(lead: dict, footprint: dict) -> dict:
-    """Evaluates the digital audit, isolates core weakness, and drafts video narrative."""
+    """Evaluates the expanded digital audit, isolates core weakness, and drafts video narrative."""
     audit_prompt = f"""
-    Analyze the digital footprint of this business and return a JSON object with your assessment.
+    Analyze the digital footprint and local market visibility of this business and return a JSON object.
+    
     Business Name: {lead['name']}
     Website: {lead['website']}
+    Google Reviews: {lead.get('rating', 0)} stars across {lead.get('review_count', 0)} reviews
     Page Load Time: {footprint['load_speed_sec']} seconds
+    Direct Lead Form Present: {footprint.get('has_lead_form', False)}
+    Tap-to-Call Link Present: {footprint.get('has_click_to_call', False)}
+    Mobile Responsive Viewport: {footprint.get('is_mobile_responsive', False)}
+    Structured Schema (JSON-LD): {footprint.get('has_schema', False)}
+    Meta Description Present: {footprint.get('has_meta_desc', False)}
     Identified Social Accounts: {footprint['social_links']}
     Technical/UX Flags: {footprint['missing_elements']}
     Website Text Sample: {footprint['content_snippet']}
@@ -187,17 +131,20 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
          "seo": <1-100>,
          "social_media": <1-100>,
          "website_speed": <1-100>,
-         "content_clarity": <1-100>
+         "content_clarity": <1-100>,
+         "lead_conversion": <1-100>,
+         "reputation": <1-100>
       }},
       "core_weakness": "<name of lowest category and specific diagnostic reason>",
+      "quick_win": "<one immediate, high-impact tactical fix>",
       "solution": "<our agency's targeted, high-ROI fix>",
-      "email_subject": "<compelling, non-spammy subject line>",
-      "email_body": "<under 130 words, referencing their specific bottleneck, offering the fix, and referencing the attached breakdown video>",
+      "email_subject": "<compelling, non-spammy subject line referencing their specific bottleneck>",
+      "email_body": "<under 130 words, referencing their bottleneck, proposing the quick win, and referencing the attached video>",
       "intro_voiceover": "Welcome. In this brief executive briefing, we review the digital baseline and revenue performance for {lead['name']}.",
       "video_script": [
          {{"slide_title": "Current Bottleneck", "voiceover": "<15 seconds breaking down what is currently losing them leads>"}},
-         {{"slide_title": "Revenue Impact", "voiceover": "<15 seconds highlighting the impact of this weakness on local traffic>"}},
-         {{"slide_title": "The Strategic Fix", "voiceover": "<15 seconds outlining our agency solution>"}},
+         {{"slide_title": "Revenue Impact", "voiceover": "<15 seconds highlighting the impact of this weakness on local market share>"}},
+         {{"slide_title": "The Strategic Fix", "voiceover": "<15 seconds outlining our agency solution and immediate quick win>"}},
          {{"slide_title": "Action Step", "voiceover": "<12 seconds zero-friction call to action>"}}
       ],
       "outro_voiceover": "To review the complete audit findings or discuss implementation, contact Elkins and Co at elkinsrevenue.com."
@@ -207,7 +154,6 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
     raw_response = call_nrp_llm(audit_prompt)
     clean_json = re.search(r'\{.*\}', raw_response, re.DOTALL).group(0)
     return json.loads(clean_json)
-
 # ==============================================================================
 # 3. HIGH-IMPACT SLIDE DECK RENDERER
 # ==============================================================================
@@ -568,7 +514,7 @@ def main():
         clean_name = re.sub(r'[^a-zA-Z0-9]', '', name)
         video_file = f"{clean_name}_audit_brief.mp4"
         
-        print("  -> Rendering complete 6-slide video presentation with ElevenLabs...")
+        print("  -> Rendering complete 6-slide video presentation...")
         assemble_pitch_video(name, audit, footprint["logo_img_path"], video_file)
         
         email_recipient = footprint["email"]
@@ -584,11 +530,19 @@ def main():
             "Address": lead["address"],
             "Website": website,
             "Contact Email": email_recipient,
+            "Google Rating": lead.get("rating", 0),
+            "Review Count": lead.get("review_count", 0),
             "SEO Score": audit["scores"]["seo"],
             "Social Score": audit["scores"]["social_media"],
             "Speed Score": audit["scores"]["website_speed"],
             "Clarity Score": audit["scores"]["content_clarity"],
+            "Lead Conversion Score": audit["scores"].get("lead_conversion", 0),
+            "Reputation Score": audit["scores"].get("reputation", 0),
+            "Has Lead Form": footprint.get("has_lead_form", False),
+            "Has Tap-to-Call": footprint.get("has_click_to_call", False),
+            "Has Schema": footprint.get("has_schema", False),
             "Core Weakness": audit["core_weakness"],
+            "Quick Win": audit.get("quick_win", ""),
             "Proposed Solution": audit["solution"],
             "Email Subject": audit["email_subject"],
             "Email Status": delivery_status,
