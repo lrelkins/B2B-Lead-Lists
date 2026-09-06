@@ -7,6 +7,7 @@ from email.message import EmailMessage
 from urllib.parse import urlparse, urljoin
 import requests
 import pandas as pd
+from playwright.sync_api import sync_playwright
 from gtts import gTTS
 from bs4 import BeautifulSoup
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
@@ -120,6 +121,70 @@ def find_businesses(category: str, location: str, limit: int = 1) -> list:
     except Exception as e:
         print(f"\n[Network Error during Places API call]: {e}")
         return []
+
+
+def capture_site_assets_playwright(website_url: str, screenshot_path: str = "prospect_homepage.png", logo_path: str = "prospect_logo_temp.png") -> dict:
+    """Captures 1920x1080 above-the-fold view and extracts high-res brand logo using Playwright."""
+    result = {
+        "screenshot_path": None,
+        "logo_path": None
+    }
+    if not website_url:
+        return result
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+            
+            page.goto(website_url, timeout=20000, wait_until="networkidle")
+            page.wait_for_timeout(1500)
+
+            # 1. Capture above-the-fold screenshot (strictly 1920x1080)
+            page.screenshot(path=screenshot_path, full_page=False)
+            result["screenshot_path"] = screenshot_path
+
+            # 2. Extract brand logo directly via Playwright selectors
+            logo_selectors = [
+                'header img[src*="logo" i]',
+                'nav img[src*="logo" i]',
+                'a[class*="brand" i] img',
+                'a[class*="logo" i] img',
+                'img[src*="logo" i]',
+                'img[alt*="logo" i]'
+            ]
+
+            logo_elem = None
+            for sel in logo_selectors:
+                el = page.locator(sel).first
+                if el.count() > 0 and el.is_visible():
+                    logo_elem = el
+                    break
+
+            if logo_elem:
+                logo_elem.screenshot(path=logo_path)
+                result["logo_path"] = logo_path
+            else:
+                icon_el = page.locator('link[rel*="icon" i], link[rel*="apple-touch-icon" i]').first
+                if icon_el.count() > 0:
+                    href = icon_el.get_attribute("href")
+                    if href:
+                        abs_url = urljoin(page.url, href)
+                        r = requests.get(abs_url, timeout=5)
+                        if r.status_code == 200:
+                            with open(logo_path, "wb") as f:
+                                f.write(r.content)
+                            result["logo_path"] = logo_path
+
+            browser.close()
+    except Exception as e:
+        print(f"    [PLAYWRIGHT WARNING] Asset capture failed: {e}")
+
+    return result
 
 
 def scrape_site_footprint(website_url: str) -> dict:
@@ -406,13 +471,12 @@ def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect
             pass
 
     if not placed_prospect_logo:
-        # Dynamically measure text and provide generous horizontal padding so words fit completely inside
         badge_text = "PROSPECT AUDIT"
         bbox_badge = draw.textbbox((0, 0), badge_text, font=font_badge)
         badge_text_w = bbox_badge[2] - bbox_badge[0]
         badge_text_h = bbox_badge[3] - bbox_badge[1]
         
-        badge_pad_x = 44  # Generous padding on left and right
+        badge_pad_x = 44
         badge_pad_y = 14
         badge_w = badge_text_w + (badge_pad_x * 2)
         badge_h = badge_text_h + (badge_pad_y * 2)
@@ -447,6 +511,67 @@ def create_title_slide(lead_name: str, bullets: list, output_path: str, prospect
         draw.ellipse([content_x + 4, bullet_y + 12, content_x + 20, bullet_y + 28], fill=STYLE["ACCENT_BLUE"])
         draw.text((content_x + 40, bullet_y), b, fill=STYLE["TEXT_MAIN"], font=font_bullet)
         bullet_y += 58
+
+    img.save(output_path)
+
+
+def create_homepage_slide(screenshot_path: str, business_name: str, output_path: str):
+    """Renders the captured above-the-fold homepage inside the card styling."""
+    W, H = 1920, 1080
+    img = Image.new("RGB", (W, H), color=STYLE["BG"])
+    draw = ImageDraw.Draw(img)
+
+    margin_x, margin_y = 100, 70
+    draw.rounded_rectangle([margin_x, margin_y, W - margin_x, H - margin_y], radius=24, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
+
+    content_x = margin_x + 100
+    header_y = margin_y + 60
+    draw_agency_brand(draw, img, content_x, header_y)
+
+    font_pill = load_font(["arialbd.ttf", "segoeuib.ttf"], 22)
+    font_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 54)
+    font_footer = load_font(["arial.ttf", "segoeui.ttf"], 22)
+
+    # Eyebrow Pill
+    pill_y = header_y + 80
+    pill_text = "CURRENT DIGITAL ASSET · HOMEPAGE BASELINE"
+    bbox_pill = draw.textbbox((0, 0), pill_text, font=font_pill)
+    text_w = bbox_pill[2] - bbox_pill[0]
+    draw.rounded_rectangle([content_x, pill_y, content_x + text_w + 80, pill_y + 44], radius=10, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
+    draw.text((content_x + 40, pill_y + 11), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
+
+    # Headline
+    title_y = pill_y + 60
+    draw.text((content_x, title_y), f"Live Capture: {business_name}", fill=STYLE["TEXT_MAIN"], font=font_title)
+    draw.line((content_x, title_y + 70, content_x + 220, title_y + 70), fill=STYLE["ACCENT_BLUE"], width=5)
+
+    # Embed Browser Window Frame with Screenshot
+    if screenshot_path and os.path.exists(screenshot_path):
+        try:
+            with Image.open(screenshot_path) as shot:
+                shot_w, shot_h = 1380, 580
+                shot_thumb = shot.resize((shot_w, shot_h), Image.Resampling.LANCZOS)
+                shot_x = content_x
+                shot_y = title_y + 100
+
+                # Simulated browser window header
+                bar_h = 32
+                draw.rounded_rectangle([shot_x, shot_y, shot_x + shot_w, shot_y + shot_h + bar_h], radius=12, fill=STYLE["BG"], outline=STYLE["CARD_BORDER"], width=2)
+                draw.rectangle([shot_x, shot_y + bar_h, shot_x + shot_w, shot_y + bar_h + 2], fill=STYLE["DIVIDER"])
+
+                # Window control dots
+                for idx, c in enumerate([(239, 68, 68), (245, 158, 11), (34, 197, 94)]):
+                    draw.ellipse([shot_x + 16 + (idx * 20), shot_y + 10, shot_x + 28 + (idx * 20), shot_y + 22], fill=c)
+
+                img.paste(shot_thumb, (shot_x, shot_y + bar_h))
+        except Exception as e:
+            print(f"    [SLIDE ERROR] Could not paste homepage screenshot: {e}")
+
+    # Footer
+    footer_y = H - margin_y - 65
+    draw.line((content_x, footer_y - 20, W - margin_x - 100, footer_y - 20), fill=STYLE["CARD_BORDER"], width=1)
+    draw.text((content_x, footer_y), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=STYLE["TEXT_FAINT"], font=font_footer)
+    draw.text((W - margin_x - 380, footer_y), CONFIG.get("AGENCY_WEBSITE", "WWW.ELKINSREVENUE.COM").upper(), fill=STYLE["ACCENT_BLUE"], font=font_footer)
 
     img.save(output_path)
 
@@ -515,6 +640,7 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
     draw.text((W - margin_x - 380, footer_y), CONFIG.get("AGENCY_WEBSITE", "WWW.ELKINSREVENUE.COM").upper(), fill=STYLE["ACCENT_BLUE"], font=font_footer)
 
     img.save(output_path)
+
 
 def create_outro_slide(output_path: str):
     """Renders clean contact closing slide."""
@@ -607,44 +733,54 @@ def generate_voiceover(text: str, output_audio_path: str):
         print("    [VOICE] Rendering with Google TTS (Free)...")
         generate_tts_google(text, output_audio_path)
 
-def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path: str, output_video_path: str) -> str:
-    """Builds complete executive video presentation."""
+def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path: str, homepage_shot_path: str, output_video_path: str) -> str:
+    """Builds complete executive presentation including opening logo and live site slide."""
     clips = []
     temp_files = []
 
-    # 1. Intro Slide (Spoken research & roadmap + bullet points)
+    # 1. Opening Title Slide (Displaying prospect logo)
     intro_img = "slide_intro.png"
     intro_audio = "audio_intro.mp3"
     temp_files.extend([intro_img, intro_audio])
     create_title_slide(company_name, audit_data.get("intro_bullets", []), intro_img, prospect_logo_path)
     
-    # Narrative default audio incorporating the requested explanation sentence
     default_intro = (
         f"We took a look at your current available digital marketing approach and think we can help you do better. "
-        f"In this brief executive session, we review the digital baseline and revenue performance for {company_name}, "
-        f"highlight specific friction points hurting conversions, and outline a high-impact roadmap to resolve them."
+        f"In this brief executive session, we review the digital baseline and revenue performance for {company_name}."
     )
     generate_voiceover(audit_data.get("intro_voiceover", default_intro), intro_audio)
-
     a_clip = AudioFileClip(intro_audio)
     clips.append(ImageClip(intro_img).with_duration(a_clip.duration).with_audio(a_clip))
 
-    # 2. Body Slides
+    # 2. Homepage Capture Slide
+    if homepage_shot_path and os.path.exists(homepage_shot_path):
+        home_img = "slide_homepage.png"
+        home_audio = "audio_homepage.mp3"
+        temp_files.extend([home_img, home_audio])
+        create_homepage_slide(homepage_shot_path, company_name, home_img)
+        
+        home_vo = f"Here is the current above-the-fold customer landing experience for {company_name}, which we analyzed for load friction, layout stability, and immediate inquiry triggers."
+        generate_voiceover(home_vo, home_audio)
+        a_clip_home = AudioFileClip(home_audio)
+        clips.append(ImageClip(home_img).with_duration(a_clip_home.duration).with_audio(a_clip_home))
+
+    # 3. Diagnostic Body Slides
     for i, slide in enumerate(audit_data["video_script"]):
         s_img = f"slide_{i}.png"
         s_audio = f"audio_{i}.mp3"
         temp_files.extend([s_img, s_audio])
 
-        create_body_slide(eyebrow=slide.get("eyebrow", f"0{i+1} / STRATEGIC BRIEF"),
-                          title=slide["slide_title"],
-                          bullets=slide.get("bullets", []),
-                          output_path=s_img)
+        create_body_slide(
+            eyebrow=slide.get("eyebrow", f"0{i+1} / STRATEGIC BRIEF"),
+            title=slide["slide_title"],
+            bullets=slide.get("bullets", []),
+            output_path=s_img
+        )
         generate_voiceover(slide["voiceover"], s_audio)
-
         a_clip = AudioFileClip(s_audio)
         clips.append(ImageClip(s_img).with_duration(a_clip.duration).with_audio(a_clip))
 
-    # 3. Outro Slide
+    # 4. Outro Slide
     outro_img = "slide_outro.png"
     outro_audio = "audio_outro.mp3"
     temp_files.extend([outro_img, outro_audio])
@@ -654,11 +790,11 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
     a_clip = AudioFileClip(outro_audio)
     clips.append(ImageClip(outro_img).with_duration(a_clip.duration).with_audio(a_clip))
 
-    # Compile Video
+    # Stitch and Render Video
     final_video = concatenate_videoclips(clips, method="compose")
     final_video.write_videofile(output_video_path, fps=24, codec="libx264", audio_codec="aac", logger=None)
 
-    # Cleanup temp files
+    # Cleanup temporary assets
     for f in temp_files:
         if os.path.exists(f):
             try:
@@ -666,9 +802,15 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
             except Exception:
                 pass
 
-    if os.path.exists(prospect_logo_path):
+    if prospect_logo_path and os.path.exists(prospect_logo_path):
         try:
             os.remove(prospect_logo_path)
+        except Exception:
+            pass
+
+    if homepage_shot_path and os.path.exists(homepage_shot_path):
+        try:
+            os.remove(homepage_shot_path)
         except Exception:
             pass
 
@@ -716,7 +858,6 @@ def save_records_to_google_sheet(records: list):
             if not existing_values:
                 sheet.append_row(headers)
             
-            # Convert non-serializable objects (like Path) to strings
             clean_df = df.astype(str)
             rows = clean_df.values.tolist()
             sheet.append_rows(rows)
@@ -790,16 +931,22 @@ def main():
         
         print("  -> Scraping website, discovering assets & footprint...")
         footprint = scrape_site_footprint(website)
-        
+
+        # Capture live screenshot & logo with Playwright
+        print("  -> Capturing above-the-fold screenshot and brand logo via Playwright...")
+        pw_assets = capture_site_assets_playwright(website)
+        active_logo = pw_assets["logo_path"] if pw_assets.get("logo_path") else footprint.get("logo_img_path")
+        active_shot = pw_assets.get("screenshot_path")
+
         print("  -> Performing digital audit & drafting voiceover + slide bullets via NRP cluster...")
         audit = audit_and_compose(lead, footprint)
-        
+
         clean_name = re.sub(r'[^a-zA-Z0-9]', '', name)
         video_filename = f"{clean_name}_audit_brief.mp4"
         video_full_path = str(CONFIG["OUTPUT_DIR"] / video_filename)
-        
+
         print(f"  -> Rendering complete executive presentation to: {video_full_path}")
-        assemble_pitch_video(name, audit, footprint["logo_img_path"], video_full_path)
+        assemble_pitch_video(name, audit, active_logo, active_shot, video_full_path)
         
         email_recipient = footprint["email"]
         delivery_status = "Skipped (No Email)"
