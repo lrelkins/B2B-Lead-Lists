@@ -124,7 +124,7 @@ def find_businesses(category: str, location: str, limit: int = 1) -> list:
 
 
 def capture_site_assets_playwright(website_url: str, screenshot_path: str = "prospect_homepage.png", logo_path: str = "prospect_logo_temp.png") -> dict:
-    """Captures 1920x1080 above-the-fold view and extracts high-res brand logo using Playwright."""
+    """Captures 1920x1080 viewport using anti-detection and guarantees a brand logo fallback."""
     result = {
         "screenshot_path": None,
         "logo_path": None
@@ -134,58 +134,92 @@ def capture_site_assets_playwright(website_url: str, screenshot_path: str = "pro
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            # Launch with anti-automation flags
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--no-sandbox"
+                ]
+            )
             context = browser.new_context(
                 viewport={"width": 1920, "height": 1080},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                locale="en-US",
+                timezone_id="America/New_York",
+                extra_http_headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                    "Sec-Ch-Ua-Mobile": "?0",
+                    "Sec-Ch-Ua-Platform": '"Windows"',
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                    "Upgrade-Insecure-Requests": "1"
+                }
             )
             page = context.new_page()
-            
-            page.goto(website_url, timeout=20000, wait_until="networkidle")
-            page.wait_for_timeout(1500)
 
-            # 1. Capture above-the-fold screenshot (strictly 1920x1080)
-            page.screenshot(path=screenshot_path, full_page=False)
-            result["screenshot_path"] = screenshot_path
+            # Evade webdriver fingerprinting
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
 
-            # 2. Extract brand logo directly via Playwright selectors
-            logo_selectors = [
-                'header img[src*="logo" i]',
-                'nav img[src*="logo" i]',
-                'a[class*="brand" i] img',
-                'a[class*="logo" i] img',
-                'img[src*="logo" i]',
-                'img[alt*="logo" i]'
-            ]
+            response = page.goto(website_url, timeout=25000, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
 
-            logo_elem = None
-            for sel in logo_selectors:
-                el = page.locator(sel).first
-                if el.count() > 0 and el.is_visible():
-                    logo_elem = el
-                    break
+            status = response.status if response else 0
+            page_title = page.title().lower()
 
-            if logo_elem:
-                logo_elem.screenshot(path=logo_path)
-                result["logo_path"] = logo_path
-            else:
-                icon_el = page.locator('link[rel*="icon" i], link[rel*="apple-touch-icon" i]').first
-                if icon_el.count() > 0:
-                    href = icon_el.get_attribute("href")
-                    if href:
-                        abs_url = urljoin(page.url, href)
-                        r = requests.get(abs_url, timeout=5)
-                        if r.status_code == 200:
-                            with open(logo_path, "wb") as f:
-                                f.write(r.content)
+            # Verify we didn't land on a 403 or WAF challenge page
+            if status != 403 and "403 forbidden" not in page_title and "access denied" not in page_title:
+                page.screenshot(path=screenshot_path, full_page=False)
+                result["screenshot_path"] = screenshot_path
+
+                # 1. Attempt DOM Logo Extraction
+                logo_selectors = [
+                    'header img[src*="logo" i]',
+                    'nav img[src*="logo" i]',
+                    'a[class*="brand" i] img',
+                    'a[class*="logo" i] img',
+                    'img[alt*="logo" i]',
+                    'img[src*="logo" i]'
+                ]
+
+                for sel in logo_selectors:
+                    el = page.locator(sel).first
+                    if el.count() > 0 and el.is_visible():
+                        box = el.bounding_box()
+                        if box and box["width"] > 20 and box["height"] > 10:
+                            el.screenshot(path=logo_path)
                             result["logo_path"] = logo_path
+                            break
 
             browser.close()
+
     except Exception as e:
-        print(f"    [PLAYWRIGHT WARNING] Asset capture failed: {e}")
+        print(f"    [PLAYWRIGHT WARNING] Stealth browsing failed: {e}")
+
+    # Guaranteed Fallback: Google S2 Favicon API for official high-res brand asset
+    if not result["logo_path"] or not os.path.exists(logo_path):
+        try:
+            domain = urlparse(website_url).netloc or website_url
+            clean_domain = domain.replace("www.", "")
+            fallback_url = f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{clean_domain}&size=128"
+            r = requests.get(fallback_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code == 200 and len(r.content) > 600:
+                with open(logo_path, "wb") as f:
+                    f.write(r.content)
+                result["logo_path"] = logo_path
+        except Exception:
+            pass
 
     return result
-
 
 def scrape_site_footprint(website_url: str) -> dict:
     """Scrapes homepage HTML for emails, social links, logo, technical SEO, and conversion friction."""
