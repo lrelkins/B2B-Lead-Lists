@@ -2,6 +2,7 @@ import os
 import re
 import json
 import smtplib
+from pathlib import Path
 from email.message import EmailMessage
 from urllib.parse import urlparse, urljoin
 import requests
@@ -28,7 +29,7 @@ CONFIG = {
     "ELEVENLABS_KEY": os.getenv("ELEVENLABS_KEY", "your-elevenlabs-key"),
     "VOICE_ID": "nPczCjzI2devNBz1zQrb",  # Brian (Executive Narrative)
 
-# Brand Identity & Contact Assets
+    # Brand Identity & Contact Assets
     "BRAND_PRIMARY": "ELKINS & CO.",
     "BRAND_SUBTITLE": "REVENUE STRATEGIES",
     "AGENCY_NAME": "ELKINS & CO · REVENUE STRATEGIES",
@@ -41,8 +42,14 @@ CONFIG = {
     "SMTP_PORT": 465,
     "SENDER_EMAIL": "your-email@domain.com",
     "SENDER_PASSWORD": "your-app-password",
-    "OUTPUT_CSV": "prospecting_leads.csv"
+    "OUTPUT_CSV": "prospecting_leads.csv",
+
+    # Output Destination Directory for Rendered Videos
+    "OUTPUT_DIR": Path(r"G:\My Drive\Elkins Revenue Consulting\AI Agent Scripts\ElkinsRev Prospect Videos")
 }
+
+# Ensure destination directory exists on startup
+CONFIG["OUTPUT_DIR"].mkdir(parents=True, exist_ok=True)
 
 # ==============================================================================
 # 1. DISCOVERY & SCRAPING ENGINE
@@ -183,6 +190,7 @@ def scrape_site_footprint(website_url: str) -> dict:
         details["missing_elements"].append("Website Inaccessible/Slow")
 
     return details
+
 # ==============================================================================
 # 2. AUDIT & OUTREACH COMPOSITION (NRP CLUSTER)
 # ==============================================================================
@@ -248,6 +256,7 @@ def audit_and_compose(lead: dict, footprint: dict) -> dict:
     raw_response = call_nrp_llm(audit_prompt)
     clean_json = re.search(r'\{.*\}', raw_response, re.DOTALL).group(0)
     return json.loads(clean_json)
+
 # ==============================================================================
 # 3. HIGH-IMPACT SLIDE DECK RENDERER
 # ==============================================================================
@@ -328,7 +337,7 @@ def create_title_slide(lead_name: str, output_path: str, prospect_logo_path: str
 
     # Main Title
     title_y = logo_y + 110
-    draw.text((content_x, title_y), f"Digital Performance & Revenue Audit", fill=TEXT_WHITE, font=font_main_title)
+    draw.text((content_x, title_y), "Digital Performance & Revenue Audit", fill=TEXT_WHITE, font=font_main_title)
     draw.line((content_x, title_y + 95, content_x + 260, title_y + 95), fill=ACCENT_BLUE, width=6)
     
     # Subtext
@@ -503,7 +512,7 @@ def generate_voiceover(text: str, output_audio_path: str):
         generate_tts_google(text, output_audio_path)
 
 
-def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path: str, output_filename: str) -> str:
+def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path: str, output_video_path: str) -> str:
     """Builds a complete 6-slide executive presentation video (Intro + 4 Content + Outro)."""
     clips = []
     temp_files = []
@@ -540,9 +549,9 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
     a_clip = AudioFileClip(outro_audio)
     clips.append(ImageClip(outro_img).with_duration(a_clip.duration).with_audio(a_clip))
 
-    # Stitch Video
+    # Stitch Video directly to target output path
     final_video = concatenate_videoclips(clips, method="compose")
-    final_video.write_videofile(output_filename, fps=24, codec="libx264", audio_codec="aac", logger=None)
+    final_video.write_videofile(output_video_path, fps=24, codec="libx264", audio_codec="aac", logger=None)
 
     # Cleanup temp slides & audio
     for f in temp_files:
@@ -558,7 +567,8 @@ def assemble_pitch_video(company_name: str, audit_data: dict, prospect_logo_path
         except Exception:
             pass
 
-    return output_filename
+    return output_video_path
+
 # ==============================================================================
 # 5. EMAIL TRANSMISSION
 # ==============================================================================
@@ -611,18 +621,20 @@ def main():
         print("  -> Performing digital audit & drafting briefing via NRP cluster...")
         audit = audit_and_compose(lead, footprint)
         
+        # Build clean filename and resolve full path in the target output folder
         clean_name = re.sub(r'[^a-zA-Z0-9]', '', name)
-        video_file = f"{clean_name}_audit_brief.mp4"
+        video_filename = f"{clean_name}_audit_brief.mp4"
+        video_full_path = str(CONFIG["OUTPUT_DIR"] / video_filename)
         
-        print("  -> Rendering complete 6-slide video presentation...")
-        assemble_pitch_video(name, audit, footprint["logo_img_path"], video_file)
+        print(f"  -> Rendering complete 6-slide video presentation to: {video_full_path}")
+        assemble_pitch_video(name, audit, footprint["logo_img_path"], video_full_path)
         
         email_recipient = footprint["email"]
         delivery_status = "Skipped (No Email)"
         
         if email_recipient != "Not Listed" and "@" in email_recipient:
             print(f"  -> Sending prospecting email to {email_recipient}...")
-            send_prospect_email(email_recipient, audit["email_subject"], audit["email_body"], video_file)
+            send_prospect_email(email_recipient, audit["email_subject"], audit["email_body"], video_full_path)
             delivery_status = "Email Sent with Video"
         
         records.append({
@@ -646,7 +658,7 @@ def main():
             "Proposed Solution": audit["solution"],
             "Email Subject": audit["email_subject"],
             "Email Status": delivery_status,
-            "Video Asset": video_file
+            "Video Asset": video_full_path
         })
         
     df = pd.DataFrame(records)
