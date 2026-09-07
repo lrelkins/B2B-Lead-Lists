@@ -1,7 +1,7 @@
 import os
 import re
-import json
 import time
+import json
 import smtplib
 from pathlib import Path
 from email.message import EmailMessage
@@ -937,14 +937,14 @@ def generate_voiceover(text: str, output_audio_path: str):
         generate_tts_google(text, output_audio_path)
 
 def assemble_pitch_video(company_name: str, contact_name: str, audit_data: dict, prospect_logo_path: str, homepage_shot_path: str, output_video_path: str) -> str:
-    """Builds complete executive video presentation including competitor slide."""
+    """Builds complete executive video presentation and saves all slide PNGs to Google Drive."""
     clips = []
-    temp_files = []
+    clean_prefix = re.sub(r'[^a-zA-Z0-9]', '', company_name)
+    out_dir = CONFIG["OUTPUT_DIR"]
 
-    # 1. Title Slide
-    intro_img = "slide_intro.png"
-    intro_audio = "audio_intro.mp3"
-    temp_files.extend([intro_img, intro_audio])
+    # 1. Title Slide (Saved directly in Google Drive Output Folder)
+    intro_img = str(out_dir / f"{clean_prefix}_01_intro.png")
+    intro_audio = f"audio_intro_{int(time.time())}.mp3"
     create_title_slide(company_name, contact_name, audit_data.get("intro_bullets", []), intro_img, prospect_logo_path)
     generate_voiceover(audit_data.get("intro_voiceover", ""), intro_audio)
     a_clip = AudioFileClip(intro_audio)
@@ -952,9 +952,8 @@ def assemble_pitch_video(company_name: str, contact_name: str, audit_data: dict,
 
     # 2. Homepage Capture Slide
     if homepage_shot_path and os.path.exists(homepage_shot_path):
-        home_img = "slide_homepage.png"
-        home_audio = "audio_homepage.mp3"
-        temp_files.extend([home_img, home_audio])
+        home_img = str(out_dir / f"{clean_prefix}_02_homepage.png")
+        home_audio = f"audio_home_{int(time.time())}.mp3"
         create_homepage_slide(homepage_shot_path, company_name, home_img)
         home_vo = f"Here is the current above-the-fold landing experience for {company_name}, analyzed for load speed, conversion friction, and inquiry retention."
         generate_voiceover(home_vo, home_audio)
@@ -963,19 +962,18 @@ def assemble_pitch_video(company_name: str, contact_name: str, audit_data: dict,
 
     # 3. Competitor Comparison Slide
     if "competitor_slide" in audit_data:
-        comp_img = "slide_competitor.png"
-        comp_audio = "audio_competitor.mp3"
-        temp_files.extend([comp_img, comp_audio])
+        comp_img = str(out_dir / f"{clean_prefix}_03_competitor.png")
+        comp_audio = f"audio_comp_{int(time.time())}.mp3"
         create_competitor_slide(audit_data["competitor_slide"], comp_img)
         generate_voiceover(audit_data["competitor_slide"].get("voiceover", ""), comp_audio)
         a_clip_comp = AudioFileClip(comp_audio)
         clips.append(ImageClip(comp_img).with_duration(a_clip_comp.duration).with_audio(a_clip_comp))
 
     # 4. Diagnostic Body Slides
+    start_body_num = 4 if "competitor_slide" in audit_data else 3
     for i, slide in enumerate(audit_data.get("video_script", [])):
-        s_img = f"slide_{i}.png"
-        s_audio = f"audio_{i}.mp3"
-        temp_files.extend([s_img, s_audio])
+        s_img = str(out_dir / f"{clean_prefix}_0{start_body_num + i}_diagnostic_{i+1}.png")
+        s_audio = f"audio_diag_{i}_{int(time.time())}.mp3"
         create_body_slide(
             eyebrow=slide.get("eyebrow", f"0{i+1} / STRATEGIC BRIEF"),
             title=slide["slide_title"],
@@ -987,92 +985,72 @@ def assemble_pitch_video(company_name: str, contact_name: str, audit_data: dict,
         clips.append(ImageClip(s_img).with_duration(a_clip.duration).with_audio(a_clip))
 
     # 5. Outro Slide
-    outro_img = "slide_outro.png"
-    outro_audio = "audio_outro.mp3"
-    temp_files.extend([outro_img, outro_audio])
+    final_slide_num = start_body_num + len(audit_data.get("video_script", []))
+    outro_img = str(out_dir / f"{clean_prefix}_0{final_slide_num}_outro.png")
+    outro_audio = f"audio_outro_{int(time.time())}.mp3"
     create_outro_slide(outro_img)
     generate_voiceover(audit_data.get("outro_voiceover", f"Visit {CONFIG['AGENCY_WEBSITE']} to connect with our strategic team."), outro_audio)
     a_clip = AudioFileClip(outro_audio)
     clips.append(ImageClip(outro_img).with_duration(a_clip.duration).with_audio(a_clip))
 
-    # Stitch Video
+    # Stitch & Save Video
     final_video = concatenate_videoclips(clips, method="compose")
     final_video.write_videofile(output_video_path, fps=24, codec="libx264", audio_codec="aac", logger=None)
 
-    for f in temp_files + [prospect_logo_path, homepage_shot_path]:
+    # Clean up audio and browser artifacts only (preserving all slide PNGs in Google Drive)
+    for f in [intro_audio, outro_audio, prospect_logo_path, homepage_shot_path]:
         if f and os.path.exists(f):
             try:
                 os.remove(f)
             except Exception:
                 pass
 
+    print(f"  -> Successfully saved all slide PNGs to Google Drive: {out_dir}")
     return output_video_path
 
-def assemble_pitch_pdf(company_name: str, contact_name: str, audit_data: dict, prospect_logo_path: str, homepage_shot_path: str, output_pdf_path: str) -> str:
-    """Renders high-res slides including competitor card and saves as PDF deck."""
-    slide_images = []
-    temp_files = []
+def assemble_pitch_google_slides(company_name: str, lead: dict, rival: dict, audit: dict, active_logo: str = None, active_shot: str = None) -> str:
+    """Renders all slide PNGs directly to Google Drive and populates the Google Slide deck."""
+    clean_prefix = re.sub(r'[^a-zA-Z0-9]', '', company_name)
+    out_dir = CONFIG["OUTPUT_DIR"]
 
-    # 1. Title Slide
-    intro_img = "slide_intro.png"
-    temp_files.append(intro_img)
-    create_title_slide(company_name, contact_name, audit_data.get("intro_bullets", []), intro_img, prospect_logo_path)
-    slide_images.append(Image.open(intro_img).convert("RGB"))
+    # =========================================================================
+    # 1. RENDER & SAVE ALL PNG SLIDES TO GOOGLE DRIVE (CONFIG["OUTPUT_DIR"])
+    # =========================================================================
+    # 1. Intro Slide
+    s1_png = str(out_dir / f"{clean_prefix}_01_intro.png")
+    create_title_slide(company_name, audit.get("contact_name", "Leadership"), audit.get("intro_bullets", []), s1_png, active_logo)
 
-    # 2. Homepage Capture Slide
-    if homepage_shot_path and os.path.exists(homepage_shot_path):
-        home_img = "slide_homepage.png"
-        temp_files.append(home_img)
-        create_homepage_slide(homepage_shot_path, company_name, home_img)
-        slide_images.append(Image.open(home_img).convert("RGB"))
+    # 2. Homepage Live Capture Slide
+    if active_shot and os.path.exists(active_shot):
+        s2_png = str(out_dir / f"{clean_prefix}_02_homepage.png")
+        create_homepage_slide(active_shot, company_name, s2_png)
 
-    # 3. Competitor Comparison Slide
-    if "competitor_slide" in audit_data:
-        comp_img = "slide_competitor.png"
-        temp_files.append(comp_img)
-        create_competitor_slide(audit_data["competitor_slide"], comp_img)
-        slide_images.append(Image.open(comp_img).convert("RGB"))
+    # 3. Competitor Card Slide
+    if "competitor_slide" in audit:
+        s3_png = str(out_dir / f"{clean_prefix}_03_competitor.png")
+        create_competitor_slide(audit["competitor_slide"], s3_png)
 
     # 4. Diagnostic Body Slides
-    for i, slide in enumerate(audit_data.get("video_script", [])):
-        s_img = f"slide_{i}.png"
-        temp_files.append(s_img)
+    start_body_num = 4 if "competitor_slide" in audit else 3
+    for i, slide in enumerate(audit.get("video_script", [])):
+        body_png = str(out_dir / f"{clean_prefix}_0{start_body_num + i}_diagnostic_{i+1}.png")
         create_body_slide(
             eyebrow=slide.get("eyebrow", f"0{i+1} / STRATEGIC BRIEF"),
             title=slide["slide_title"],
             bullets=slide.get("bullets", []),
-            output_path=s_img
+            output_path=body_png
         )
-        slide_images.append(Image.open(s_img).convert("RGB"))
 
     # 5. Outro Slide
-    outro_img = "slide_outro.png"
-    temp_files.append(outro_img)
-    create_outro_slide(outro_img)
-    slide_images.append(Image.open(outro_img).convert("RGB"))
+    final_slide_num = start_body_num + len(audit.get("video_script", []))
+    outro_png = str(out_dir / f"{clean_prefix}_0{final_slide_num}_outro.png")
+    create_outro_slide(outro_png)
 
-    if slide_images:
-        first_page = slide_images[0]
-        remaining_pages = slide_images[1:]
-        first_page.save(
-            output_pdf_path,
-            save_all=True,
-            append_images=remaining_pages,
-            resolution=100.0
-        )
-        print(f"  -> Generated presentation PDF deck: {output_pdf_path}")
+    print(f"  -> Successfully saved all slide PNGs to Google Drive folder: {out_dir}")
 
-    for f in temp_files + [prospect_logo_path, homepage_shot_path]:
-        if f and os.path.exists(f):
-            try:
-                os.remove(f)
-            except Exception:
-                pass
-
-    return output_pdf_path
-
-def assemble_pitch_google_slides(company_name: str, target: dict, rival: dict, audit: dict) -> str:
-    """Populates the shared Google Slide deck with custom audit slides using the service account."""
+    # =========================================================================
+    # 2. UPDATE THE GOOGLE SLIDES DECK (VECTOR OVERLAY)
+    # =========================================================================
     creds_file = CONFIG.get("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
     pres_id = CONFIG.get("GOOGLE_SLIDES_PRESENTATION_ID", "").strip()
 
@@ -1088,31 +1066,80 @@ def assemble_pitch_google_slides(company_name: str, target: dict, rival: dict, a
     slides_service = build("slides", "v1", credentials=creds)
 
     curr_pres = slides_service.presentations().get(presentationId=pres_id).execute()
-    existing_slides = curr_pres.get("slides", [])
-    old_slide_ids = [s["objectId"] for s in existing_slides]
+    old_slide_ids = [s["objectId"] for s in curr_pres.get("slides", [])]
 
     requests_list = []
-
-    # Slide 1: Intro / Benchmark
     ts = int(time.time())
-    s1_id = f"intro_{ts}"
+
+    c_card_bg = {"rgbColor": {"red": 0.972, "green": 0.980, "blue": 0.988}}     # #F8FAFC
+    c_border = {"rgbColor": {"red": 0.886, "green": 0.910, "blue": 0.941}}      # #E2E8F0
+
+    def add_standard_slide_frame(slide_id: str, insert_idx: int):
+        card_id = f"card_{slide_id}"
+        requests_list.extend([
+            {"createSlide": {"objectId": slide_id, "insertionIndex": insert_idx}},
+            {
+                "createShape": {
+                    "objectId": card_id,
+                    "shapeType": "ROUND_RECTANGLE",
+                    "elementProperties": {
+                        "pageObjectId": slide_id,
+                        "size": {"width": {"magnitude": 660, "unit": "PT"}, "height": {"magnitude": 365, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 30, "translateY": 20, "unit": "PT"}
+                    }
+                }
+            },
+            {
+                "updateShapeProperties": {
+                    "objectId": card_id,
+                    "shapeProperties": {
+                        "shapeBackgroundFill": {"solidFill": {"color": c_card_bg}},
+                        "outline": {
+                            "outlineFill": {"solidFill": {"color": c_border}},
+                            "weight": {"magnitude": 1, "unit": "PT"}
+                        }
+                    },
+                    "fields": "shapeBackgroundFill,outline"
+                }
+            }
+        ])
+
+    # Slide 1: Intro Title Slide
+    s1_id = f"intro_slide_{ts}"
+    add_standard_slide_frame(s1_id, len(old_slide_ids))
+
     t1_id = f"title_{ts}"
     b1_id = f"body_{ts}"
-    intro_body = (
-        f"• Audited page speed, lead flow, search visibility, mobile compatibility\n"
-        f"• Identified competitive leakage points favoring {rival.get('name', 'Competitor')}\n"
-        f"• Proposing immediate friction-free strategic roadmap to recover revenue"
+    pill1_id = f"pill_{ts}"
+
+    intro_text = (
+        f"Prepared Exclusively for Leadership at: {company_name}\n\n"
+        f"• Audited page speed, lead flow, search visibility & mobile UX\n"
+        f"• Identified competitive leakage points favoring {rival.get('name', 'Local Competitor')}\n"
+        f"• Delivering immediate friction-free strategic recovery roadmap"
     )
+
     requests_list.extend([
-        {"createSlide": {"objectId": s1_id, "insertionIndex": len(old_slide_ids)}},
+        {
+            "createShape": {
+                "objectId": pill1_id,
+                "shapeType": "ROUND_RECTANGLE",
+                "elementProperties": {
+                    "pageObjectId": s1_id,
+                    "size": {"width": {"magnitude": 170, "unit": "PT"}, "height": {"magnitude": 22, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 45, "unit": "PT"}
+                }
+            }
+        },
+        {"insertText": {"objectId": pill1_id, "text": "CONFIDENTIAL BRIEFING"}},
         {
             "createShape": {
                 "objectId": t1_id,
                 "shapeType": "TEXT_BOX",
                 "elementProperties": {
                     "pageObjectId": s1_id,
-                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 60, "unit": "PT"}},
-                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                    "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 50, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 75, "unit": "PT"}
                 }
             }
         },
@@ -1123,126 +1150,179 @@ def assemble_pitch_google_slides(company_name: str, target: dict, rival: dict, a
                 "shapeType": "TEXT_BOX",
                 "elementProperties": {
                     "pageObjectId": s1_id,
-                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
-                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 130, "unit": "PT"}
+                    "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 200, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 135, "unit": "PT"}
                 }
             }
         },
-        {"insertText": {"objectId": b1_id, "text": intro_body}}
+        {"insertText": {"objectId": b1_id, "text": intro_text}}
     ])
 
-    # Slide 2: Head-to-Head Comparison
+    # Slide 2: Competitor Comparison
     if "competitor_slide" in audit:
         c_slide = audit["competitor_slide"]
-        cs_id = f"comp_{ts}"
-        ct_id = f"ctitle_{ts}"
-        cb_id = f"cbody_{ts}"
-        comp_body = (
-            f"Target ({target.get('name', 'Your Business')}): {target.get('rating', 0)}★ ({target.get('review_count', 0)} reviews)\n"
-            f"Benchmark ({rival.get('name', 'Competitor')}): {rival.get('rating', 0)}★ ({rival.get('review_count', 0)} reviews)\n\n"
-            + "\n".join([f"• {b}" for b in c_slide.get("bullets", [])])
+        s2_id = f"comp_slide_{ts}"
+        add_standard_slide_frame(s2_id, len(old_slide_ids) + 1)
+
+        t2_id = f"ctitle_{ts}"
+        box_target = f"cbox_target_{ts}"
+        box_rival = f"cbox_rival_{ts}"
+        bullets_comp = f"cbullets_{ts}"
+
+        target_stats = (
+            f"TARGET: {company_name[:28]}\n"
+            f"• Rating: {lead.get('rating', 0)}★ ({lead.get('review_count', 0)} reviews)\n"
+            f"• Lead Form: {'Active' if audit.get('has_lead_form') else 'Missing'}"
         )
+        rival_stats = (
+            f"BENCHMARK: {rival.get('name', 'Top Rival')[:28]}\n"
+            f"• Rating: {rival.get('rating', 0)}★ ({rival.get('review_count', 0)} reviews)\n"
+            f"• Market Advantage: Lead Capture"
+        )
+        comp_summary = "\n".join([f"• {b}" for b in c_slide.get("bullets", [])])
+
         requests_list.extend([
-            {"createSlide": {"objectId": cs_id, "insertionIndex": len(old_slide_ids) + 1}},
             {
                 "createShape": {
-                    "objectId": ct_id,
+                    "objectId": t2_id,
                     "shapeType": "TEXT_BOX",
                     "elementProperties": {
-                        "pageObjectId": cs_id,
-                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 60, "unit": "PT"}},
-                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                        "pageObjectId": s2_id,
+                        "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 40, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 45, "unit": "PT"}
                     }
                 }
             },
-            {"insertText": {"objectId": ct_id, "text": c_slide.get("slide_title", "Market Benchmark Analysis")}},
+            {"insertText": {"objectId": t2_id, "text": "Market Benchmark Analysis"}},
             {
                 "createShape": {
-                    "objectId": cb_id,
-                    "shapeType": "TEXT_BOX",
+                    "objectId": box_target,
+                    "shapeType": "ROUND_RECTANGLE",
                     "elementProperties": {
-                        "pageObjectId": cs_id,
-                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
-                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 120, "unit": "PT"}
+                        "pageObjectId": s2_id,
+                        "size": {"width": {"magnitude": 280, "unit": "PT"}, "height": {"magnitude": 90, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 95, "unit": "PT"}
                     }
                 }
             },
-            {"insertText": {"objectId": cb_id, "text": comp_body}}
+            {"insertText": {"objectId": box_target, "text": target_stats}},
+            {
+                "createShape": {
+                    "objectId": box_rival,
+                    "shapeType": "ROUND_RECTANGLE",
+                    "elementProperties": {
+                        "pageObjectId": s2_id,
+                        "size": {"width": {"magnitude": 280, "unit": "PT"}, "height": {"magnitude": 90, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 360, "translateY": 95, "unit": "PT"}
+                    }
+                }
+            },
+            {"insertText": {"objectId": box_rival, "text": rival_stats}},
+            {
+                "createShape": {
+                    "objectId": bullets_comp,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": s2_id,
+                        "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 140, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 200, "unit": "PT"}
+                    }
+                }
+            },
+            {"insertText": {"objectId": bullets_comp, "text": comp_summary}}
         ])
 
-    # Slide 3-6: Diagnostic Body Slides
+    # Diagnostic Body Slides
     start_idx = len(old_slide_ids) + (2 if "competitor_slide" in audit else 1)
     for i, slide in enumerate(audit.get("video_script", [])):
-        slide_page_id = f"diag_{i}_{ts}"
-        title_box_id = f"dtitle_{i}_{ts}"
-        body_box_id = f"dbody_{i}_{ts}"
-        bullet_text = "\n".join([f"• {b}" for b in slide.get("bullets", [])])
+        s_id = f"diag_slide_{i}_{ts}"
+        add_standard_slide_frame(s_id, start_idx + i)
+
+        eyebrow_id = f"deyebrow_{i}_{ts}"
+        title_id = f"dtitle_{i}_{ts}"
+        body_id = f"dbody_{i}_{ts}"
+        bullet_text = "\n\n".join([f"• {b}" for b in slide.get("bullets", [])])
 
         requests_list.extend([
-            {"createSlide": {"objectId": slide_page_id, "insertionIndex": start_idx + i}},
             {
                 "createShape": {
-                    "objectId": title_box_id,
-                    "shapeType": "TEXT_BOX",
+                    "objectId": eyebrow_id,
+                    "shapeType": "ROUND_RECTANGLE",
                     "elementProperties": {
-                        "pageObjectId": slide_page_id,
-                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 50, "unit": "PT"}},
-                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                        "pageObjectId": s_id,
+                        "size": {"width": {"magnitude": 180, "unit": "PT"}, "height": {"magnitude": 20, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 45, "unit": "PT"}
                     }
                 }
             },
-            {"insertText": {"objectId": title_box_id, "text": f"{slide.get('eyebrow', 'FINDING')} — {slide.get('slide_title', '')}"}},
+            {"insertText": {"objectId": eyebrow_id, "text": slide.get("eyebrow", f"0{i+1} / FINDING")}},
             {
                 "createShape": {
-                    "objectId": body_box_id,
+                    "objectId": title_id,
                     "shapeType": "TEXT_BOX",
                     "elementProperties": {
-                        "pageObjectId": slide_page_id,
-                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
-                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 120, "unit": "PT"}
+                        "pageObjectId": s_id,
+                        "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 45, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 75, "unit": "PT"}
                     }
                 }
             },
-            {"insertText": {"objectId": body_box_id, "text": bullet_text}}
+            {"insertText": {"objectId": title_id, "text": slide.get("slide_title", "Diagnostic Finding")}},
+            {
+                "createShape": {
+                    "objectId": body_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": s_id,
+                        "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 200, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 130, "unit": "PT"}
+                    }
+                }
+            },
+            {"insertText": {"objectId": body_id, "text": bullet_text}}
         ])
 
     # Outro Slide
-    s_out_id = f"outro_{ts}"
-    t_out_id = f"otitle_{ts}"
-    b_out_id = f"obody_{ts}"
-    outro_text = (
-        f"Ready to boost digital performance?\n\n"
-        f"Agency: {CONFIG.get('AGENCY_NAME', 'ELKINS & CO')}\n"
+    s_out = f"outro_slide_{ts}"
+    out_idx = start_idx + len(audit.get("video_script", []))
+    add_standard_slide_frame(s_out, out_idx)
+
+    t_out = f"otitle_{ts}"
+    c_out = f"ocontact_{ts}"
+
+    contact_info = (
+        f"Ready to boost pipeline conversion?\n\n"
+        f"Agency: {CONFIG.get('AGENCY_NAME', 'ELKINS & CO · REVENUE STRATEGIES')}\n"
         f"Website: {CONFIG.get('AGENCY_WEBSITE', 'www.elkinsrevenue.com')}\n"
-        f"Phone: {CONFIG.get('AGENCY_PHONE', '')}\n"
-        f"Email: {CONFIG.get('AGENCY_EMAIL', '')}"
+        f"Phone: {CONFIG.get('AGENCY_PHONE', '917-327-0636')}\n"
+        f"Email: {CONFIG.get('AGENCY_EMAIL', 'lorren@elkinsrevenue.com')}"
     )
+
     requests_list.extend([
-        {"createSlide": {"objectId": s_out_id, "insertionIndex": start_idx + len(audit.get("video_script", []))}},
         {
             "createShape": {
-                "objectId": t_out_id,
+                "objectId": t_out,
                 "shapeType": "TEXT_BOX",
                 "elementProperties": {
-                    "pageObjectId": s_out_id,
-                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 50, "unit": "PT"}},
-                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                    "pageObjectId": s_out,
+                    "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 50, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 65, "unit": "PT"}
                 }
             }
         },
-        {"insertText": {"objectId": t_out_id, "text": "Strategic Next Steps"}},
+        {"insertText": {"objectId": t_out, "text": "Strategic Next Steps"}},
         {
             "createShape": {
-                "objectId": b_out_id,
+                "objectId": c_out,
                 "shapeType": "TEXT_BOX",
                 "elementProperties": {
-                    "pageObjectId": s_out_id,
-                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
-                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 120, "unit": "PT"}
+                    "pageObjectId": s_out,
+                    "size": {"width": {"magnitude": 580, "unit": "PT"}, "height": {"magnitude": 180, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 60, "translateY": 130, "unit": "PT"}
                 }
             }
         },
-        {"insertText": {"objectId": b_out_id, "text": outro_text}}
+        {"insertText": {"objectId": c_out, "text": contact_info}}
     ])
 
     for old_id in old_slide_ids:
@@ -1251,7 +1331,7 @@ def assemble_pitch_google_slides(company_name: str, target: dict, rival: dict, a
     slides_service.presentations().batchUpdate(presentationId=pres_id, body={"requests": requests_list}).execute()
 
     deck_url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
-    print(f"    -> Successfully updated Google Slide Deck: {deck_url}")
+    print(f"    -> Successfully generated Styled Google Slide Deck: {deck_url}")
     return deck_url
 
 # ==============================================================================
@@ -1360,10 +1440,11 @@ def main():
     elif create_pdf:
         print("-> Mode: PDF Presentation Deck (No Voiceover Audio Needed)")
     elif create_slides:
-        print("-> Mode: Google Slides (Presentation will be created in Google Drive)")
+        print("-> Mode: Google Slides (Presentation will be updated directly in Google Drive)")
     else:
         print("-> Mode: Data Only (Bypassing visual assets, saving straight to Google Sheet)")
-    
+
+    # Run Mode: Batch Discovery vs. Single Prospect URL
     print("\nSelect Prospect Mode:")
     print("  [1] Batch Discovery via Google Places")
     print("  [2] Single Prospect by Website URL")
@@ -1374,14 +1455,12 @@ def main():
         if not single_url.startswith("http"):
             single_url = "https://" + single_url
 
-        # Guess business name from domain
-        clean_domain = urlparse(single_url).netloc.replace("www.", "")
+        clean_domain = extract_clean_domain(single_url)
         name_guess = clean_domain.split(".")[0].replace("-", " ").title()
 
         name_input = input(f"Enter prospect business name [Default: '{name_guess}']: ").strip()
         prospect_name = name_input if name_input else name_guess
 
-        # Needed so find_benchmark_competitor can find a local rival for comparison
         category = input("Enter business category for competitor benchmark (e.g., HVAC, Optometrist): ").strip()
         location = input("Enter city/region for competitor benchmark (e.g., Estero FL, Naples FL): ").strip()
 
@@ -1393,7 +1472,6 @@ def main():
             "review_count": 0
         }]
     else:
-
         category = input("\nEnter target business category (e.g., HVAC, Optometrist, Roofing): ").strip()
         location = input("Enter target geographic region (e.g., Estero FL, Naples FL): ").strip()
 
@@ -1406,19 +1484,19 @@ def main():
 
         print(f"\n[1/5] Finding up to {limit} business(es) for '{category}' in '{location}'...")
         leads = find_businesses(category, location, limit=limit)
-    
+
     if not leads:
         print("\n[TERMINATED] No leads were retrieved. Inspect search criteria or Places API key.")
         return
-    
+
     records = []
-    
+
     for lead in leads:
         name = lead["name"]
         website = lead["website"]
         print(f"\nProcessing: {name} ({website})")
-        
-        # 1. Scrape standard website footprint
+
+        # 1. Scrape target website footprint
         print("  -> Scraping target website footprint...")
         footprint = scrape_site_footprint(website)
 
@@ -1436,8 +1514,8 @@ def main():
         active_logo = None
         active_shot = None
 
-        # 4. Asset Capture for Video/PDF
-        if create_video or create_pdf:
+        # 4. Asset Capture for Video/PDF/Slides
+        if create_video or create_pdf or create_slides:
             print("  -> Capturing above-the-fold screenshot and brand logo via Playwright...")
             pw_assets = capture_site_assets_playwright(website)
             active_logo = pw_assets["logo_path"] if pw_assets.get("logo_path") else footprint.get("logo_img_path")
@@ -1486,8 +1564,8 @@ def main():
                     delivery_status = f"Failed ({e})"
 
         elif create_slides:
-            print("  -> Creating native Google Slides deck in Google Drive...")
-            generated_asset_path = assemble_pitch_google_slides(name, lead, rival, audit)
+            print("  -> Updating native Google Slides deck in Google Drive...")
+            generated_asset_path = assemble_pitch_google_slides(name, lead, rival, audit, active_logo, active_shot)
 
             delivery_status = "Skipped (No Email)"
             if email_recipient != "Not Listed" and "@" in email_recipient:
