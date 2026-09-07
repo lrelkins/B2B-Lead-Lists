@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import smtplib
 from pathlib import Path
 from email.message import EmailMessage
@@ -13,10 +14,11 @@ from bs4 import BeautifulSoup
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
 
-# Optional: Google Sheets API
+# Optional: Google Sheets & Slides API
 try:
     import gspread
     from oauth2client.service_account import ServiceAccountCredentials
+    from googleapiclient.discovery import build
     GSPREAD_AVAILABLE = True
 except ImportError:
     GSPREAD_AVAILABLE = False
@@ -56,9 +58,11 @@ CONFIG = {
     "SENDER_EMAIL": "your-email@domain.com",
     "SENDER_PASSWORD": "your-app-password",
 
-    # Google Sheets Integration
+    # Google Sheets & Slides Integration
     "GOOGLE_SHEET_NAME": "Prospecting Pipeline & Audit Data",
     "GOOGLE_SHEETS_CREDENTIALS_JSON": r"G:\My Drive\Elkins Revenue Consulting\AI Agent Scripts\Prospect Database\service_account.json",
+    "GOOGLE_DRIVE_FOLDER_ID": "1r7k12ng7-AG2yRm4yDUxCwXOdtSlvlv6",
+    "GOOGLE_SLIDES_PRESENTATION_ID": "1QtdJgcxAbQrtU4uo1OIEuJCCb87dy3CnB-yN6RuysDs",
     "FALLBACK_LOCAL_CSV": "prospecting_leads.csv",
 
     # Output Destination Directory for Rendered Assets
@@ -88,10 +92,10 @@ STYLE = {
 # 1. DISCOVERY, ENRICHMENT & SCRAPING ENGINE
 # ==============================================================================
 def find_businesses(category: str, location: str, limit: int = 1) -> list:
-    """Discovers targets via Google Places API (New Text Search)[cite: 1, 2]."""
+    """Discovers targets via Google Places API (New Text Search)."""
     api_key = CONFIG.get("GOOGLE_PLACES_KEY")
     if not api_key or api_key == "your-places-api-key":
-        print("\n[CONFIG ERROR] Missing Google Places API Key in environment or CONFIG[cite: 1, 2].")
+        print("\n[CONFIG ERROR] Missing Google Places API Key in environment or CONFIG.")
         return []
 
     clamped_limit = max(1, min(limit, 20))
@@ -130,7 +134,7 @@ def find_businesses(category: str, location: str, limit: int = 1) -> list:
         return []
 
 def find_benchmark_competitor(category: str, location: str, prospect_name: str) -> dict:
-    """Finds top competitor in the target region to serve as market benchmark[cite: 1, 2]."""
+    """Finds top competitor in the target region to serve as market benchmark."""
     peers = find_businesses(category, location, limit=5)
     candidates = [p for p in peers if p["name"].strip().lower() != prospect_name.strip().lower()]
     if candidates:
@@ -144,7 +148,7 @@ def find_benchmark_competitor(category: str, location: str, prospect_name: str) 
     }
 
 def extract_clean_domain(website_url: str) -> str:
-    """Normalizes URLs to bare domain strings[cite: 2]."""
+    """Normalizes URLs to bare domain strings."""
     if not website_url:
         return ""
     parsed = urlparse(website_url)
@@ -154,7 +158,7 @@ def extract_clean_domain(website_url: str) -> str:
     return domain.split("/")[0].strip().lower()
 
 def query_apollo_decision_maker(domain: str) -> dict:
-    """Queries Apollo.io API to identify executive decision maker[cite: 2]."""
+    """Queries Apollo.io API to identify executive decision maker."""
     api_key = CONFIG.get("APOLLO_API_KEY")
     if not api_key or not domain:
         return None
@@ -189,7 +193,7 @@ def query_apollo_decision_maker(domain: str) -> dict:
     return None
 
 def query_hunter_decision_maker(domain: str) -> dict:
-    """Queries Hunter.io Domain Search API as secondary enrichment fallback[cite: 2]."""
+    """Queries Hunter.io Domain Search API as secondary enrichment fallback."""
     api_key = CONFIG.get("HUNTER_API_KEY")
     if not api_key or not domain:
         return None
@@ -212,7 +216,7 @@ def query_hunter_decision_maker(domain: str) -> dict:
     return None
 
 def find_decision_maker(website_url: str, fallback_scraped_email: str) -> dict:
-    """Cascading decision maker finder: Apollo -> Hunter -> Direct Scrape fallback[cite: 2]."""
+    """Cascading decision maker finder: Apollo -> Hunter -> Direct Scrape fallback."""
     domain = extract_clean_domain(website_url)
 
     apollo_result = query_apollo_decision_maker(domain)
@@ -264,7 +268,7 @@ def find_decision_maker(website_url: str, fallback_scraped_email: str) -> dict:
     }
 
 def capture_site_assets_playwright(website_url: str, screenshot_path: str = "prospect_homepage.png", logo_path: str = "prospect_logo_temp.png") -> dict:
-    """Captures 1920x1080 viewport using anti-detection and logo fallback[cite: 1, 2]."""
+    """Captures 1920x1080 viewport using anti-detection and logo fallback."""
     result = {"screenshot_path": None, "logo_path": None}
     if not website_url:
         return result
@@ -331,7 +335,7 @@ def capture_site_assets_playwright(website_url: str, screenshot_path: str = "pro
     return result
 
 def scrape_site_footprint(website_url: str) -> dict:
-    """Scrapes homepage HTML for emails, social links, logo, and technical SEO signals[cite: 1, 2]."""
+    """Scrapes homepage HTML for emails, social links, logo, and technical SEO signals."""
     details = {
         "email": "Not Listed",
         "social_links": [],
@@ -424,7 +428,7 @@ def scrape_site_footprint(website_url: str) -> dict:
 # 2. AUDIT & OUTREACH COMPOSITION (NRP CLUSTER WITH COMPETITOR AUDIT)
 # ==============================================================================
 def call_nrp_llm(prompt: str) -> str:
-    """Sends prompt to your custom NRP Nautilus vLLM endpoint[cite: 1, 2]."""
+    """Sends prompt to your custom NRP Nautilus vLLM endpoint."""
     headers = {
         "Authorization": f"Bearer {CONFIG['NRP_API_KEY']}",
         "Content-Type": "application/json"
@@ -439,7 +443,7 @@ def call_nrp_llm(prompt: str) -> str:
     return res.json()["choices"][0]["message"]["content"]
 
 def audit_and_compose(lead: dict, footprint: dict, contact: dict, rival: dict, rival_fp: dict) -> dict:
-    """Evaluates the primary target against its rival and drafts comparison copy[cite: 1, 2]."""
+    """Evaluates the primary target against its rival and drafts comparison copy."""
     audit_prompt = f"""
     Analyze {lead['name']} and compare it against its key local competitor {rival['name']}. Address findings directly to {contact['name']} ({contact['title']}). Return a strict JSON object.
 
@@ -528,7 +532,7 @@ def audit_and_compose(lead: dict, footprint: dict, contact: dict, rival: dict, r
          }},
          {{
            "eyebrow": "05 / RECOMMENDATIONS",
-           "slide_title": "INext Steps",
+           "slide_title": "Next Steps",
            "bullets": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
            "voiceover": "<12s narrative>"
          }}
@@ -656,9 +660,6 @@ def create_title_slide(lead_name: str, contact_name: str, bullets: list, output_
 
     img.save(output_path)
 
-# ==============================================================================
-# 3. SLIDE DECK RENDERER (Clean Light Mode with Adjusted Layout)
-# ==============================================================================
 def draw_standard_footer(draw, W, H, margin_x, margin_y, content_x, content_max_w):
     """Renders standard footer with Elkins & Co | REVENUE STRATEGIES centered."""
     footer_y = H - margin_y - 60
@@ -668,10 +669,8 @@ def draw_standard_footer(draw, W, H, margin_x, margin_y, content_x, content_max_
     font_brand_main = load_font(["arialbd.ttf", "segoeuib.ttf"], 20)
     font_brand_sub = load_font(["arial.ttf", "segoeui.ttf"], 18)
 
-    # 1. Left metadata
     draw.text((content_x, footer_y), "CONFIDENTIAL", fill=STYLE["TEXT_FAINT"], font=font_footer)
 
-    # 2. Centered: "ELKINS & CO. | REVENUE STRATEGIES"
     primary_text = CONFIG.get("BRAND_PRIMARY", "ELKINS & CO.")
     sub_text = CONFIG.get("BRAND_SUBTITLE", "REVENUE STRATEGIES")
     
@@ -689,12 +688,10 @@ def draw_standard_footer(draw, W, H, margin_x, margin_y, content_x, content_max_
     draw.line([(div_x, footer_y + 2), (div_x, footer_y + 20)], fill=STYLE["DIVIDER"], width=2)
     draw.text((div_x + divider_pad, footer_y + 1), sub_text, fill=STYLE["ACCENT_BLUE"], font=font_brand_sub)
 
-    # 3. Right website URL
     site_url = CONFIG.get("AGENCY_WEBSITE", "WWW.ELKINSREVENUE.COM").upper()
     bbox_site = draw.textbbox((0, 0), site_url, font=font_footer)
     site_w = bbox_site[2] - bbox_site[0]
     draw.text((content_max_w - site_w, footer_y), site_url, fill=STYLE["ACCENT_BLUE"], font=font_footer)
-
 
 def create_homepage_slide(screenshot_path: str, business_name: str, output_path: str):
     """Renders the captured above-the-fold homepage with guaranteed footer clearance."""
@@ -711,7 +708,6 @@ def create_homepage_slide(screenshot_path: str, business_name: str, output_path:
     font_pill = load_font(["arialbd.ttf", "segoeuib.ttf"], 22)
     font_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 50)
 
-    # 1. Eyebrow positioned at top header space
     pill_y = margin_y + 55
     pill_text = "CURRENT DIGITAL ASSET · HOMEPAGE BASELINE"
     bbox_pill = draw.textbbox((0, 0), pill_text, font=font_pill)
@@ -720,26 +716,21 @@ def create_homepage_slide(screenshot_path: str, business_name: str, output_path:
     draw.rounded_rectangle([content_x, pill_y, content_x + pill_w, pill_y + 44], radius=10, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
     draw.text((content_x + 30, pill_y + 10), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
 
-    # 2. Main Title
     title_y = pill_y + 60
     draw.text((content_x, title_y), f"Live Capture: {business_name}", fill=STYLE["TEXT_MAIN"], font=font_title)
     draw.line((content_x, title_y + 68, content_x + 220, title_y + 68), fill=STYLE["ACCENT_BLUE"], width=5)
 
-    # 3. Constrained screenshot preview (Guaranteed not to overlap footer line)
     shot_y = title_y + 90
     bar_h = 28
-    shot_w, shot_h = 1380, 500  # Scaled to clear footer by 60px+
+    shot_w, shot_h = 1380, 500
 
     if screenshot_path and os.path.exists(screenshot_path):
         try:
             with Image.open(screenshot_path) as shot:
                 shot_thumb = shot.resize((shot_w, shot_h), Image.Resampling.LANCZOS)
-                
-                # Window container
                 draw.rounded_rectangle([content_x, shot_y, content_x + shot_w, shot_y + shot_h + bar_h], radius=12, fill=STYLE["BG"], outline=STYLE["CARD_BORDER"], width=2)
                 draw.rectangle([content_x, shot_y + bar_h, content_x + shot_w, shot_y + bar_h + 2], fill=STYLE["DIVIDER"])
 
-                # Window dots
                 for idx, c in enumerate([(239, 68, 68), (245, 158, 11), (34, 197, 94)]):
                     draw.ellipse([content_x + 16 + (idx * 20), shot_y + 8, content_x + 28 + (idx * 20), shot_y + 20], fill=c)
 
@@ -747,10 +738,8 @@ def create_homepage_slide(screenshot_path: str, business_name: str, output_path:
         except Exception as e:
             print(f"    [SLIDE ERROR] Could not paste homepage screenshot: {e}")
 
-    # 4. Standard Footer
     draw_standard_footer(draw, W, H, margin_x, margin_y, content_x, content_max_w)
     img.save(output_path)
-
 
 def create_competitor_slide(comp_data: dict, output_path: str):
     """Renders head-to-head competitor comparison slide with adjusted header/footer."""
@@ -770,7 +759,6 @@ def create_competitor_slide(comp_data: dict, output_path: str):
     font_stat = load_font(["arial.ttf", "segoeui.ttf"], 24)
     font_bullet = load_font(["arial.ttf", "segoeui.ttf"], 36)
 
-    # 1. Eyebrow moved to top
     eyebrow = comp_data.get("eyebrow", "02 / LOCAL BENCHMARK").upper()
     pill_y = margin_y + 55
     bbox = draw.textbbox((0, 0), eyebrow, font=font_pill)
@@ -778,18 +766,15 @@ def create_competitor_slide(comp_data: dict, output_path: str):
     draw.rounded_rectangle([content_x, pill_y, content_x + pw, pill_y + 46], radius=10, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
     draw.text((content_x + 40, pill_y + 11), eyebrow, fill=STYLE["ACCENT_BLUE"], font=font_pill)
 
-    # 2. Main Title
     title_y = pill_y + 68
     draw.text((content_x, title_y), comp_data.get("slide_title", "Competitive Head-to-Head Analysis"), fill=STYLE["TEXT_MAIN"], font=font_title)
     draw.line((content_x, title_y + 78, content_x + 240, title_y + 78), fill=STYLE["ACCENT_BLUE"], width=6)
 
-    # 3. Side-by-Side Target vs Rival Cards
     card_y = title_y + 110
     total_w = content_max_w - content_x
     half_w = (total_w - 40) // 2
     card_h = 175
 
-    # Target Box
     draw.rounded_rectangle([content_x, card_y, content_x + half_w, card_y + card_h], radius=14, fill=STYLE["BG"], outline=STYLE["CARD_BORDER"], width=2)
     t_name = comp_data.get("target_label", "Your Business")[:34]
     draw.text((content_x + 30, card_y + 20), f"TARGET: {t_name}", fill=STYLE["TEXT_MAIN"], font=font_col_header)
@@ -798,7 +783,6 @@ def create_competitor_slide(comp_data: dict, output_path: str):
         draw.text((content_x + 30, stat_y), f"• {stat}", fill=STYLE["TEXT_MUTED"], font=font_stat)
         stat_y += 30
 
-    # Benchmark Rival Box
     rival_x = content_x + half_w + 40
     draw.rounded_rectangle([rival_x, card_y, rival_x + half_w, card_y + card_h], radius=14, fill=STYLE["BG"], outline=STYLE["ACCENT_BLUE"], width=2)
     r_name = comp_data.get("rival_label", "Top Rival")[:34]
@@ -808,17 +792,14 @@ def create_competitor_slide(comp_data: dict, output_path: str):
         draw.text((rival_x + 30, r_stat_y), f"• {stat}", fill=STYLE["TEXT_MUTED"], font=font_stat)
         r_stat_y += 30
 
-    # 4. Bullets
     bullet_y = card_y + card_h + 45
     for b in comp_data.get("bullets", [])[:3]:
         draw.ellipse([content_x + 4, bullet_y + 14, content_x + 20, bullet_y + 30], fill=STYLE["ACCENT_BLUE"])
         draw.text((content_x + 40, bullet_y), b, fill=STYLE["TEXT_MUTED"], font=font_bullet)
         bullet_y += 54
 
-    # 5. Standard Footer
     draw_standard_footer(draw, W, H, margin_x, margin_y, content_x, content_max_w)
     img.save(output_path)
-
 
 def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str):
     """Renders executive diagnostic body slides with top-aligned eyebrow and centered footer brand."""
@@ -836,7 +817,6 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
     content_x = margin_x + 100
     content_max_w = W - margin_x - 100
 
-    # 1. Eyebrow moved to top header position
     pill_y = margin_y + 55
     pill_text = eyebrow.upper()
     bbox = draw.textbbox((0, 0), pill_text, font=font_pill)
@@ -845,12 +825,10 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
     draw.rounded_rectangle([content_x, pill_y, content_x + pill_w, pill_y + 48], radius=10, fill=STYLE["PILL_BG"], outline=STYLE["ACCENT_BLUE"], width=1)
     draw.text((content_x + 40, pill_y + 12), pill_text, fill=STYLE["ACCENT_BLUE"], font=font_pill)
 
-    # 2. Main Title
     title_y = pill_y + 75
     draw.text((content_x, title_y), title, fill=STYLE["TEXT_MAIN"], font=font_title)
     draw.line((content_x, title_y + 92, content_x + 240, title_y + 92), fill=STYLE["ACCENT_BLUE"], width=6)
 
-    # 3. Bullets
     bullet_y = title_y + 140
     for b in bullets[:4]:
         draw.ellipse([content_x + 4, bullet_y + 16, content_x + 22, bullet_y + 34], fill=STYLE["ACCENT_BLUE"])
@@ -869,9 +847,9 @@ def create_body_slide(eyebrow: str, title: str, bullets: list, output_path: str)
             bullet_y += 54
         bullet_y += 24
 
-    # 4. Standard Footer
     draw_standard_footer(draw, W, H, margin_x, margin_y, content_x, content_max_w)
     img.save(output_path)
+
 def create_outro_slide(output_path: str):
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), color=STYLE["BG"])
@@ -913,7 +891,7 @@ def create_outro_slide(output_path: str):
     img.save(output_path)
 
 # ==============================================================================
-# 4. AUDIO, VIDEO & PDF PRESENTATION ENGINE
+# 4. AUDIO, VIDEO, PDF & GOOGLE SLIDES ENGINE
 # ==============================================================================
 def generate_tts_google(text: str, output_audio_path: str):
     tts = gTTS(text=text, lang="en", tld="com", slow=False)
@@ -959,7 +937,7 @@ def generate_voiceover(text: str, output_audio_path: str):
         generate_tts_google(text, output_audio_path)
 
 def assemble_pitch_video(company_name: str, contact_name: str, audit_data: dict, prospect_logo_path: str, homepage_shot_path: str, output_video_path: str) -> str:
-    """Builds complete executive video presentation including competitor slide[cite: 1, 2]."""
+    """Builds complete executive video presentation including competitor slide."""
     clips = []
     temp_files = []
 
@@ -1093,22 +1071,217 @@ def assemble_pitch_pdf(company_name: str, contact_name: str, audit_data: dict, p
 
     return output_pdf_path
 
+def assemble_pitch_google_slides(company_name: str, target: dict, rival: dict, audit: dict) -> str:
+    """Populates the shared Google Slide deck with custom audit slides using the service account."""
+    creds_file = CONFIG.get("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+    pres_id = CONFIG.get("GOOGLE_SLIDES_PRESENTATION_ID", "").strip()
+
+    if not os.path.exists(creds_file) or not pres_id:
+        print("    [GOOGLE SLIDES ERROR] Credentials file or GOOGLE_SLIDES_PRESENTATION_ID missing.")
+        return "N/A (Missing Setup)"
+
+    scope = [
+        "https://www.googleapis.com/auth/presentations",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
+    slides_service = build("slides", "v1", credentials=creds)
+
+    curr_pres = slides_service.presentations().get(presentationId=pres_id).execute()
+    existing_slides = curr_pres.get("slides", [])
+    old_slide_ids = [s["objectId"] for s in existing_slides]
+
+    requests_list = []
+
+    # Slide 1: Intro / Benchmark
+    ts = int(time.time())
+    s1_id = f"intro_{ts}"
+    t1_id = f"title_{ts}"
+    b1_id = f"body_{ts}"
+    intro_body = (
+        f"• Audited page speed, lead flow, search visibility, mobile compatibility\n"
+        f"• Identified competitive leakage points favoring {rival.get('name', 'Competitor')}\n"
+        f"• Proposing immediate friction-free strategic roadmap to recover revenue"
+    )
+    requests_list.extend([
+        {"createSlide": {"objectId": s1_id, "insertionIndex": len(old_slide_ids)}},
+        {
+            "createShape": {
+                "objectId": t1_id,
+                "shapeType": "TEXT_BOX",
+                "elementProperties": {
+                    "pageObjectId": s1_id,
+                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 60, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                }
+            }
+        },
+        {"insertText": {"objectId": t1_id, "text": f"Performance Review: {company_name}"}},
+        {
+            "createShape": {
+                "objectId": b1_id,
+                "shapeType": "TEXT_BOX",
+                "elementProperties": {
+                    "pageObjectId": s1_id,
+                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 130, "unit": "PT"}
+                }
+            }
+        },
+        {"insertText": {"objectId": b1_id, "text": intro_body}}
+    ])
+
+    # Slide 2: Head-to-Head Comparison
+    if "competitor_slide" in audit:
+        c_slide = audit["competitor_slide"]
+        cs_id = f"comp_{ts}"
+        ct_id = f"ctitle_{ts}"
+        cb_id = f"cbody_{ts}"
+        comp_body = (
+            f"Target ({target.get('name', 'Your Business')}): {target.get('rating', 0)}★ ({target.get('review_count', 0)} reviews)\n"
+            f"Benchmark ({rival.get('name', 'Competitor')}): {rival.get('rating', 0)}★ ({rival.get('review_count', 0)} reviews)\n\n"
+            + "\n".join([f"• {b}" for b in c_slide.get("bullets", [])])
+        )
+        requests_list.extend([
+            {"createSlide": {"objectId": cs_id, "insertionIndex": len(old_slide_ids) + 1}},
+            {
+                "createShape": {
+                    "objectId": ct_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": cs_id,
+                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 60, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                    }
+                }
+            },
+            {"insertText": {"objectId": ct_id, "text": c_slide.get("slide_title", "Market Benchmark Analysis")}},
+            {
+                "createShape": {
+                    "objectId": cb_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": cs_id,
+                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 120, "unit": "PT"}
+                    }
+                }
+            },
+            {"insertText": {"objectId": cb_id, "text": comp_body}}
+        ])
+
+    # Slide 3-6: Diagnostic Body Slides
+    start_idx = len(old_slide_ids) + (2 if "competitor_slide" in audit else 1)
+    for i, slide in enumerate(audit.get("video_script", [])):
+        slide_page_id = f"diag_{i}_{ts}"
+        title_box_id = f"dtitle_{i}_{ts}"
+        body_box_id = f"dbody_{i}_{ts}"
+        bullet_text = "\n".join([f"• {b}" for b in slide.get("bullets", [])])
+
+        requests_list.extend([
+            {"createSlide": {"objectId": slide_page_id, "insertionIndex": start_idx + i}},
+            {
+                "createShape": {
+                    "objectId": title_box_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": slide_page_id,
+                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 50, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                    }
+                }
+            },
+            {"insertText": {"objectId": title_box_id, "text": f"{slide.get('eyebrow', 'FINDING')} — {slide.get('slide_title', '')}"}},
+            {
+                "createShape": {
+                    "objectId": body_box_id,
+                    "shapeType": "TEXT_BOX",
+                    "elementProperties": {
+                        "pageObjectId": slide_page_id,
+                        "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
+                        "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 120, "unit": "PT"}
+                    }
+                }
+            },
+            {"insertText": {"objectId": body_box_id, "text": bullet_text}}
+        ])
+
+    # Outro Slide
+    s_out_id = f"outro_{ts}"
+    t_out_id = f"otitle_{ts}"
+    b_out_id = f"obody_{ts}"
+    outro_text = (
+        f"Ready to boost digital performance?\n\n"
+        f"Agency: {CONFIG.get('AGENCY_NAME', 'ELKINS & CO')}\n"
+        f"Website: {CONFIG.get('AGENCY_WEBSITE', 'www.elkinsrevenue.com')}\n"
+        f"Phone: {CONFIG.get('AGENCY_PHONE', '')}\n"
+        f"Email: {CONFIG.get('AGENCY_EMAIL', '')}"
+    )
+    requests_list.extend([
+        {"createSlide": {"objectId": s_out_id, "insertionIndex": start_idx + len(audit.get("video_script", []))}},
+        {
+            "createShape": {
+                "objectId": t_out_id,
+                "shapeType": "TEXT_BOX",
+                "elementProperties": {
+                    "pageObjectId": s_out_id,
+                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 50, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 50, "unit": "PT"}
+                }
+            }
+        },
+        {"insertText": {"objectId": t_out_id, "text": "Strategic Next Steps"}},
+        {
+            "createShape": {
+                "objectId": b_out_id,
+                "shapeType": "TEXT_BOX",
+                "elementProperties": {
+                    "pageObjectId": s_out_id,
+                    "size": {"width": {"magnitude": 600, "unit": "PT"}, "height": {"magnitude": 250, "unit": "PT"}},
+                    "transform": {"scaleX": 1, "scaleY": 1, "translateX": 50, "translateY": 120, "unit": "PT"}
+                }
+            }
+        },
+        {"insertText": {"objectId": b_out_id, "text": outro_text}}
+    ])
+
+    for old_id in old_slide_ids:
+        requests_list.append({"deleteObject": {"objectId": old_id}})
+
+    slides_service.presentations().batchUpdate(presentationId=pres_id, body={"requests": requests_list}).execute()
+
+    deck_url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+    print(f"    -> Successfully updated Google Slide Deck: {deck_url}")
+    return deck_url
+
 # ==============================================================================
 # 5. DATA PERSISTENCE: GOOGLE SHEETS & LOCAL CSV
 # ==============================================================================
 def save_records_to_google_sheet(records: list):
-    """Appends records to Google Sheets if credentials exist; falls back to CSV[cite: 1, 2]."""
+    """Appends records to Google Sheets if credentials exist; falls back to local CSV."""
     if not records:
         return
 
     df = pd.DataFrame(records)
     creds_file = CONFIG.get("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
 
+    print("\n--- GOOGLE SHEETS DIAGNOSTIC ---")
+    print(f"1. GSPREAD_AVAILABLE: {GSPREAD_AVAILABLE}")
+    print(f"2. Creds File Path:   {repr(creds_file)}")
+    print(f"3. File Exists Check: {os.path.exists(creds_file) if creds_file else False}")
+    print("--------------------------------\n")
+
+    if not GSPREAD_AVAILABLE:
+        print("[DIAGNOSTIC REASON] gspread or oauth2client failed to import.")
+    elif not os.path.exists(creds_file):
+        print(f"[DIAGNOSTIC REASON] Python cannot find the file at: {creds_file}")
+
     if GSPREAD_AVAILABLE and os.path.exists(creds_file):
         try:
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
             creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
             client = gspread.authorize(creds)
+            
             sheet_name = CONFIG["GOOGLE_SHEET_NAME"]
             try:
                 sheet = client.open(sheet_name).sheet1
@@ -1116,18 +1289,23 @@ def save_records_to_google_sheet(records: list):
                 spreadsheet = client.create(sheet_name)
                 sheet = spreadsheet.sheet1
             
-            existing_values = sheet.get_all_values()
+            first_row = sheet.row_values(1)
             headers = list(df.columns)
-            if not existing_values:
-                sheet.append_row(headers)
-            
             clean_df = df.astype(str)
-            rows = clean_df.values.tolist()
-            sheet.append_rows(rows)
-            print(f"\n[GOOGLE SHEETS] Successfully appended {len(records)} record(s) to '{sheet_name}'.")
+            data_rows = clean_df.values.tolist()
+            
+            if not any(cell.strip() for cell in first_row):
+                sheet.update(range_name='1:1', values=[headers])
+                sheet.append_rows(data_rows)
+                print(f"\n[GOOGLE SHEETS] Created new headers and appended {len(records)} record(s) to '{sheet_name}'.")
+            else:
+                sheet.append_rows(data_rows)
+                print(f"\n[GOOGLE SHEETS] Successfully appended {len(records)} record(s) to '{sheet_name}'.")
             return
+
         except Exception as e:
-            print(f"\n[GOOGLE SHEETS ERROR]: {e}. Falling back to CSV.")
+            print(f"\n[GOOGLE SHEETS ERROR] Failed communicating with Google Sheets: {e}")
+            print("Falling back to local CSV append...")
 
     csv_file = CONFIG["FALLBACK_LOCAL_CSV"]
     file_exists = os.path.exists(csv_file)
@@ -1138,7 +1316,7 @@ def save_records_to_google_sheet(records: list):
 # 6. EMAIL TRANSMISSION
 # ==============================================================================
 def send_prospect_email(to_email: str, subject: str, body: str, attachment_path: str):
-    """Sends the outreach email with the MP4 video or PDF deck attached[cite: 1, 2]."""
+    """Sends the outreach email with the MP4 video or PDF deck attached."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = CONFIG["SENDER_EMAIL"]
@@ -1168,10 +1346,12 @@ def main():
     print("  [1] MP4 Video (with Voiceover Audio)")
     print("  [2] PDF Slide Deck (Visual Slides Only, No Audio)")
     print("  [3] Data Only (Skip Assets, Append Directly to Sheet)")
+    print("  [4] Google Slides (Editable slides)")
     
-    output_choice = input("Enter choice [1/2/3, Default: 1]: ").strip() or "1"
-    create_video = output_choice == "1"
-    create_pdf = output_choice == "2"
+    output_choice = input("Select Output: [1] Video  [2] PDF  [3] Data Only  [4] Google Slides [Default 1]: ").strip() or "1"
+    create_video = (output_choice == "1")
+    create_pdf = (output_choice == "2")
+    create_slides = (output_choice == "4")
 
     if create_video:
         mode_choice = input("Select audio mode: [1] Free Preview (Google)  [2] Final Production (ElevenLabs): ").strip()
@@ -1179,6 +1359,8 @@ def main():
         print(f"-> Mode: Video | Voice Engine: {CONFIG['TTS_ENGINE'].upper()}")
     elif create_pdf:
         print("-> Mode: PDF Presentation Deck (No Voiceover Audio Needed)")
+    elif create_slides:
+        print("-> Mode: Google Slides (Presentation will be created in Google Drive)")
     else:
         print("-> Mode: Data Only (Bypassing visual assets, saving straight to Google Sheet)")
     
@@ -1196,7 +1378,7 @@ def main():
     leads = find_businesses(category, location, limit=limit)
     
     if not leads:
-        print("\n[TERMINATED] No leads were retrieved. Inspect search criteria or Places API key[cite: 1, 2].")
+        print("\n[TERMINATED] No leads were retrieved. Inspect search criteria or Places API key.")
         return
     
     records = []
@@ -1240,7 +1422,7 @@ def main():
         generated_asset_path = "N/A (Skipped)"
         delivery_status = "Skipped"
 
-        # 6. Build Output Assets (Video / PDF / Data Only)
+        # 6. Build Output Assets (Video / PDF / Google Slides / Data Only)
         if create_video:
             video_filename = f"{clean_name}_audit_brief.mp4"
             generated_asset_path = str(CONFIG["OUTPUT_DIR"] / video_filename)
@@ -1272,8 +1454,25 @@ def main():
                 except Exception as e:
                     print(f"  -> Email delivery failed: {e}")
                     delivery_status = f"Failed ({e})"
+
+        elif create_slides:
+            print("  -> Creating native Google Slides deck in Google Drive...")
+            generated_asset_path = assemble_pitch_google_slides(name, lead, rival, audit)
+
+            delivery_status = "Skipped (No Email)"
+            if email_recipient != "Not Listed" and "@" in email_recipient:
+                print(f"  -> Sending prospecting email to {contact['name']} ({email_recipient})...")
+                try:
+                    slide_email_body = f"{audit['email_body']}\n\nYou can review your interactive audit presentation here:\n{generated_asset_path}"
+                    send_prospect_email(email_recipient, audit["email_subject"], slide_email_body, "")
+                    delivery_status = f"Email Sent with Google Slide Link to {contact['name']}"
+                except Exception as e:
+                    print(f"  -> Email delivery failed: {e}")
+                    delivery_status = f"Failed ({e})"
+
         else:
             delivery_status = "Skipped (Data Only Mode)"
+            generated_asset_path = "N/A (Data Only)"
         
         records.append({
             "Business Name": name,
