@@ -1364,18 +1364,48 @@ def main():
     else:
         print("-> Mode: Data Only (Bypassing visual assets, saving straight to Google Sheet)")
     
-    category = input("\nEnter target business category (e.g., HVAC, Optometrist, Roofing): ").strip()
-    location = input("Enter target geographic region (e.g., Estero FL, Naples FL): ").strip()
+    print("\nSelect Prospect Mode:")
+    print("  [1] Batch Discovery via Google Places")
+    print("  [2] Single Prospect by Website URL")
+    run_mode = input("Select Mode [1 or 2, Default 1]: ").strip() or "1"
 
-    count_input = input("How many businesses to return and process? [Default 1, Max 20]: ").strip()
-    try:
-        limit = int(count_input) if count_input else 1
-        limit = max(1, limit)
-    except ValueError:
-        limit = 1
-    
-    print(f"\n[1/5] Finding up to {limit} business(es) for '{category}' in '{location}'...")
-    leads = find_businesses(category, location, limit=limit)
+    if run_mode == "2":
+        single_url = input("\nEnter the prospect's full website URL: ").strip()
+        if not single_url.startswith("http"):
+            single_url = "https://" + single_url
+
+        # Guess business name from domain
+        clean_domain = urlparse(single_url).netloc.replace("www.", "")
+        name_guess = clean_domain.split(".")[0].replace("-", " ").title()
+
+        name_input = input(f"Enter prospect business name [Default: '{name_guess}']: ").strip()
+        prospect_name = name_input if name_input else name_guess
+
+        # Needed so find_benchmark_competitor can find a local rival for comparison
+        category = input("Enter business category for competitor benchmark (e.g., HVAC, Optometrist): ").strip()
+        location = input("Enter city/region for competitor benchmark (e.g., Estero FL, Naples FL): ").strip()
+
+        leads = [{
+            "name": prospect_name,
+            "website": single_url,
+            "address": location,
+            "rating": 0,
+            "review_count": 0
+        }]
+    else:
+
+        category = input("\nEnter target business category (e.g., HVAC, Optometrist, Roofing): ").strip()
+        location = input("Enter target geographic region (e.g., Estero FL, Naples FL): ").strip()
+
+        count_input = input("How many businesses to return and process? [Default 1, Max 20]: ").strip()
+        try:
+            limit = int(count_input) if count_input else 1
+            limit = max(1, limit)
+        except ValueError:
+            limit = 1
+
+        print(f"\n[1/5] Finding up to {limit} business(es) for '{category}' in '{location}'...")
+        leads = find_businesses(category, location, limit=limit)
     
     if not leads:
         print("\n[TERMINATED] No leads were retrieved. Inspect search criteria or Places API key.")
