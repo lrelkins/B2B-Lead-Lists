@@ -1139,546 +1139,262 @@ Return strictly this JSON schema:
 # 3. GRAPHIC SLIDE RENDERER (PIL) - 10 SLIDE SUITE
 # ==============================================================================
 
-def render_single_page_scorecard(target: dict, target_fp: dict, contact: dict, rival: dict, rival_fp: dict, audit: dict, screenshot_path: str, out_pdf_path: str):
+def load_font(arg1, arg2=None):
     """
-    Renders an 8.5 x 11 in (Portrait, 2550 x 3300 px @ 300 DPI) Executive Diagnostic Scorecard.
-    Exports cleanly to a single-page PDF.
+    Universal font loader supporting both styles:
+      - load_font(size, bold=True/False)
+      - load_font(["arialbd.ttf", "segoeuib.ttf"], size)
     """
-    W, H = 2550, 3300
-    img = Image.new("RGB", (W, H), (255, 255, 255))
-    draw = ImageDraw.Draw(img)
-
-    # Resolve High-Resolution Fonts
-    f_header_brand = load_font(48, bold=True)
-    f_header_sub = load_font(34, bold=True)
-    f_title = load_font(68, bold=True)
-    f_subtitle = load_font(36)
-    f_card_title = load_font(36, bold=True)
-    f_pill = load_font(28, bold=True)
-    f_score_num = load_font(72, bold=True)
-    f_label = load_font(28, bold=True)
-    f_body = load_font(30)
-    f_body_bold = load_font(32, bold=True)
-    f_footer = load_font(26, bold=True)
-
-    mx = 140
-    curr_y = 120
-
-    # 1. Header Bar: Elkins & Co. | Revenue Strategies
-    draw.text((mx, curr_y), CONFIG["BRAND_PRIMARY"], fill=STYLE["TEXT_DARK"], font=f_header_brand)
-    bbox = draw.textbbox((mx, curr_y), CONFIG["BRAND_PRIMARY"], font=f_header_brand)
-    draw.text((bbox[2] + 24, curr_y + 8), CONFIG["BRAND_SUBTITLE"], fill=STYLE["BLUE"], font=f_header_sub)
-
-    # Date / Badge
-    date_str = "EXECUTIVE DIAGNOSTIC AUDIT"
-    p_box = draw.textbbox((0, 0), date_str, font=f_pill)
-    pw, ph = p_box[2] - p_box[0], p_box[3] - p_box[1]
-    draw.rounded_rectangle([W - mx - pw - 40, curr_y, W - mx, curr_y + ph + 24], radius=10, fill=STYLE["PILL_BG"], outline=(219, 234, 254), width=2)
-    draw.text((W - mx - pw - 20, curr_y + 12), date_str, fill=STYLE["BLUE"], font=f_pill)
-
-    curr_y += 100
-    draw.line([(mx, curr_y), (W - mx, curr_y)], fill=STYLE["DIVIDER"], width=3)
-    curr_y += 60
-
-    # 2. Main Title Block
-    draw.text((mx, curr_y), f"Digital Performance & Revenue Scorecard", fill=STYLE["TEXT_DARK"], font=f_title)
-    curr_y += 85
-    target_lead = f"Prepared Exclusively for: {target['name']}  ·  {target.get('address', 'Local Market')}"
-    draw.text((mx, curr_y), target_lead, fill=STYLE["TEXT_MUTED"], font=f_subtitle)
-    curr_y += 100
-
-    # 3. Top Section: Left Viewport Screenshot (Mockup) vs. Right Key Scores
-    top_sec_h = 760
-    left_w = 1240
-    right_x = mx + left_w + 60
-    right_w = W - mx - right_x
-
-    # Screenshot Frame
-    draw.rounded_rectangle([mx, curr_y, mx + left_w, curr_y + top_sec_h], radius=18, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-    draw.rounded_rectangle([mx, curr_y, mx + left_w, curr_y + 50], radius=18, fill=(241, 245, 249))
-    draw.rectangle([mx, curr_y + 35, mx + left_w, curr_y + 50], fill=(241, 245, 249))
-    draw.ellipse([mx + 20, curr_y + 18, mx + 36, curr_y + 34], fill=(239, 68, 68))
-    draw.ellipse([mx + 46, curr_y + 18, mx + 62, curr_y + 34], fill=(245, 158, 11))
-    draw.ellipse([mx + 72, curr_y + 18, mx + 88, curr_y + 34], fill=(34, 197, 94))
-
-    if screenshot_path and os.path.exists(screenshot_path):
-        try:
-            with Image.open(screenshot_path) as s_img:
-                s_img = s_img.convert("RGB")
-                shot_h = top_sec_h - 54
-                s_img = s_img.resize((left_w - 6, shot_h), Image.Resampling.LANCZOS)
-                img.paste(s_img, (mx + 3, curr_y + 52))
-        except Exception:
-            draw.text((mx + 350, curr_y + 340), "[Viewport Capture Active]", fill=STYLE["TEXT_MUTED"], font=f_subtitle)
+    if isinstance(arg1, (list, tuple)):
+        font_names = arg1
+        size = arg2 if arg2 is not None else 28
     else:
-        draw.text((mx + 350, curr_y + 340), "[Viewport Capture Active]", fill=STYLE["TEXT_MUTED"], font=f_subtitle)
+        size = arg1
+        bold = bool(arg2)
+        font_names = ["arialbd.ttf", "segoeuib.ttf", "helveticab.ttf"] if bold else ["arial.ttf", "segoeui.ttf", "helvetica.ttf"]
 
-    # Right: 4 Core Numeric Diagnostic Scores
-    scores = audit.get("scores", {})
-    score_items = [
-        ("Mobile Conversion", scores.get("mobile_conversion_readiness", 50)),
-        ("Website Speed", scores.get("website_speed", 55)),
-        ("Lead Conversion Flow", scores.get("lead_conversion", 50)),
-        ("Search & Local SEO", scores.get("seo", 70))
-    ]
-
-    sc_y = curr_y
-    card_h = (top_sec_h - 45) // 4
-    for label, val in score_items:
-        draw.rounded_rectangle([right_x, sc_y, right_x + right_w, sc_y + card_h], radius=14, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-        
-        # Color badge for score
-        bar_color = STYLE["GREEN"] if val >= 70 else (STYLE["BLUE"] if val >= 55 else STYLE["RED"])
-        draw.text((right_x + 35, sc_y + 25), label, fill=STYLE["TEXT_DARK"], font=f_card_title)
-        draw.text((right_x + right_w - 120, sc_y + 15), f"{val}", fill=bar_color, font=f_score_num)
-        
-        # Progress bar
-        bar_w = right_w - 70
-        draw.rounded_rectangle([right_x + 35, sc_y + 90, right_x + 35 + bar_w, sc_y + 104], radius=6, fill=(226, 232, 240))
-        draw.rounded_rectangle([right_x + 35, sc_y + 90, right_x + 35 + int(bar_w * (val / 100)), sc_y + 104], radius=6, fill=bar_color)
-        sc_y += card_h + 15
-
-    curr_y += top_sec_h + 60
-
-    # 4. Competitive Head-to-Head Comparison Table
-    bench_h = 560
-    draw.rounded_rectangle([mx, curr_y, W - mx, curr_y + bench_h], radius=18, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-    draw.text((mx + 45, curr_y + 35), "Head-to-Head Market Benchmark", fill=STYLE["TEXT_DARK"], font=f_card_title)
-
-    col1_x = mx + 45
-    col2_x = mx + 820
-    col3_x = mx + 1540
-    row_y = curr_y + 110
-
-    # Table Header
-    draw.text((col1_x, row_y), "METRIC", fill=STYLE["TEXT_MUTED"], font=f_label)
-    draw.text((col2_x, row_y), f"YOUR BUSINESS ({target['name'][:22]})", fill=STYLE["TEXT_DARK"], font=f_label)
-    r_name = rival["name"] if rival else "Local Benchmark Rival"
-    draw.text((col3_x, row_y), f"COMPETITOR ({r_name[:22]})", fill=STYLE["BLUE"], font=f_label)
-    row_y += 50
-    draw.line([(col1_x, row_y), (W - mx - 45, row_y)], fill=STYLE["DIVIDER"], width=2)
-
-    table_rows = [
-        ("Google Reputation & Reviews", f"{target.get('rating', 0)}★ ({target.get('review_count', 0)} reviews)", f"{rival.get('rating', 4.8)}★ ({rival.get('review_count', 180)} reviews)"),
-        ("Mobile Response Speed", f"{target_fp.get('load_speed_sec', 1.4)}s Latency", f"{rival_fp.get('load_speed_sec', 1.2)}s Latency"),
-        ("Inbound Lead Capture Form", "Active Form Found" if target_fp.get("has_lead_form") else "Missing Above Fold", "Optimized Lead Form"),
-        ("Tap-to-Call Link", "Configured" if target_fp.get("has_click_to_call") else "Missing / Inactive", "Direct Mobile Call Link"),
-        ("Structured Schema (JSON-LD)", "Active" if target_fp.get("has_schema") else "Missing LocalBusiness Schema", "Active Structured Schema"),
-        ("Competitive Gap Analysis", audit.get("competitor_gap_margin", "Rival captures more local inquiries")[:45], "Higher Search Share")
-    ]
-
-    for label, val1, val2 in table_rows:
-        row_y += 20
-        draw.text((col1_x, row_y), label, fill=STYLE["TEXT_BODY"], font=f_body)
-        draw.text((col2_x, row_y), val1, fill=STYLE["TEXT_DARK"], font=f_body_bold)
-        draw.text((col3_x, row_y), val2, fill=STYLE["BLUE"], font=f_body_bold)
-        row_y += 48
-
-    curr_y += bench_h + 60
-
-    # 5. Strategic Diagnostic Findings (Core Weakness vs. Strategic Quick Win)
-    box_w = (W - (2 * mx) - 50) // 2
-    box_h = 480
-
-    # Left: Primary Bottleneck
-    draw.rounded_rectangle([mx, curr_y, mx + box_w, curr_y + box_h], radius=18, fill=(254, 242, 242), outline=(254, 202, 202), width=2)
-    draw.text((mx + 45, curr_y + 35), "PRIMARY REVENUE LEAKAGE POINT", fill=STYLE["RED"], font=f_label)
-    weakness_text = audit.get("core_weakness", "Mobile friction and missing direct lead booking triggers suppress phone inquiries.")
-    draw.text((mx + 45, curr_y + 95), weakness_text, fill=STYLE["TEXT_DARK"], font=f_card_title)
-    draw.text((mx + 45, curr_y + 190), "• Inaccessible mobile links cause visitors to abandon immediately.", fill=STYLE["TEXT_BODY"], font=f_body)
-    draw.text((mx + 45, curr_y + 250), "• Local searchers bypass page due to missing structured schema.", fill=STYLE["TEXT_BODY"], font=f_body)
-    draw.text((mx + 45, curr_y + 310), "• Unindexed trust proof directs qualified buyers to competitors.", fill=STYLE["TEXT_BODY"], font=f_body)
-
-    # Right: Strategic Fix & High-ROI Quick Win
-    bx2 = mx + box_w + 50
-    draw.rounded_rectangle([bx2, curr_y, bx2 + box_w, curr_y + box_h], radius=18, fill=STYLE["PILL_BG"], outline=(219, 234, 254), width=2)
-    draw.text((bx2 + 45, curr_y + 35), "HIGH-ROI TURNKEY SOLUTION", fill=STYLE["BLUE"], font=f_label)
-    win_text = audit.get("quick_win", "Deploy sticky tap-to-call link, booking funnel, and LocalBusiness schema.")
-    draw.text((bx2 + 45, curr_y + 95), win_text, fill=STYLE["TEXT_DARK"], font=f_card_title)
-    draw.text((bx2 + 45, curr_y + 190), "• Implement 1-click tap-to-call for instant smartphone bookings.", fill=STYLE["TEXT_BODY"], font=f_body)
-    draw.text((bx2 + 45, curr_y + 250), "• Deploy LocalBusiness JSON-LD markup for Google Map Pack dominance.", fill=STYLE["TEXT_BODY"], font=f_body)
-    draw.text((bx2 + 45, curr_y + 310), "• Launch automated review generation to leapfrog local rivals.", fill=STYLE["TEXT_BODY"], font=f_body)
-
-    curr_y += box_h + 60
-
-    # 6. Bottom Outro & Call to Action Banner
-    outro_h = 240
-    draw.rounded_rectangle([mx, curr_y, W - mx, curr_y + outro_h], radius=18, fill=STYLE["TEXT_DARK"])
-    draw.text((mx + 50, curr_y + 35), CONFIG["CUSTOM_CTA"], fill=(255, 255, 255), font=f_card_title)
-    draw.text((mx + 50, curr_y + 95), "Schedule a complimentary 15-minute diagnostic walkthrough with our leadership team.", fill=(203, 213, 225), font=f_body)
-
-    # Agency Contacts in White Card
-    draw.text((mx + 50, curr_y + 165), f"WEB: {CONFIG['AGENCY_WEBSITE'].lower()}", fill=STYLE["BLUE"], font=f_footer)
-    draw.text((mx + 800, curr_y + 165), f"PHONE: {CONFIG['AGENCY_PHONE']}", fill=(255, 255, 255), font=f_footer)
-    draw.text((mx + 1450, curr_y + 165), f"DIRECT: {CONFIG['AGENCY_EMAIL']}", fill=(255, 255, 255), font=f_footer)
-
-    # Save as Single-Page PDF
-    img.save(out_pdf_path, "PDF", resolution=300.0)
-    print(f"  -> Single-Page Executive Scorecard PDF generated: {out_pdf_path}")
-    return out_pdf_path
-
-
-
-
-
-
-
-
-
-
-
-
-def load_font(size: int, bold: bool = False):
-    names = ["arialbd.ttf", "segoeuib.ttf"] if bold else ["arial.ttf", "segoeui.ttf"]
-    for n in names:
+    for fn in font_names:
         try:
-            return ImageFont.truetype(n, size)
+            return ImageFont.truetype(fn, size)
         except Exception:
             continue
     return ImageFont.load_default()
 
-def draw_card_base(draw, W, H):
-    """Clean Executive White Canvas (#FFFFFF) with Soft Card (#F8FAFC)."""
-    draw.rectangle([0, 0, W, H], fill=STYLE["BG"])
-    mx, my = 100, 60
-    draw.rounded_rectangle([mx, my, W - mx, H - my], radius=24, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-    # Brand Lockup
-    draw.text((mx + 70, my + 60), CONFIG["BRAND_PRIMARY"], fill=STYLE["TEXT_DARK"], font=load_font(26, bold=True))
-    bbox = draw.textbbox((mx + 70, my + 60), CONFIG["BRAND_PRIMARY"], font=load_font(26, bold=True))
-    draw.text((bbox[2] + 16, my + 64), CONFIG["BRAND_SUBTITLE"], fill=STYLE["BLUE"], font=load_font(18, bold=True))
 
-def render_title_slide(lead_name: str, contact_name: str, bullets: list, out_path: str, logo_path: str = None):
-    """Slide 1: Executive Title Slide."""
-    W, H = 1920, 1080
-    img = Image.new("RGB", (W, H), color=STYLE["BG"])
+
+def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, rival: dict, rival_fp: dict, audit: dict, shot_path: str, out_pdf_path: str):
+    """
+    Renders an executive-grade 8.5x11 in @ 300 DPI (2550 x 3300 px) single-page audit report.
+    Integrates the live browser screenshot, progress meters, technical audit, and competitor benchmark.
+    """
+    W, H = 2550, 3300
+    img = Image.new("RGB", (W, H), color=(248, 250, 252))  # Soft slate canvas background
     draw = ImageDraw.Draw(img)
-    draw_card_base(draw, W, H)
 
-    start_x = 170
-    draw.rounded_rectangle([start_x, 185, start_x + 540, 225], radius=6, fill=STYLE["PILL_BG"], outline=(219, 234, 254), width=1)
-    draw.text((start_x + 20, 193), "CONFIDENTIAL EXECUTIVE BRIEFING · RESEARCH & STRATEGY", fill=STYLE["BLUE"], font=load_font(16, bold=True))
+    # 1. High-Resolution Fonts for 300 DPI Canvas
+    f_brand = load_font(["arialbd.ttf", "segoeuib.ttf"], 50)
+    f_subbrand = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)
+    f_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 58)
+    f_meta = load_font(["arial.ttf", "segoeui.ttf"], 30)
+    f_sec = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
+    f_card_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 32)
+    f_score_num = load_font(["arialbd.ttf", "segoeuib.ttf"], 64)
+    f_table_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 30)
+    f_table_body = load_font(["arial.ttf", "segoeui.ttf"], 28)
+    f_table_body_b = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
+    f_body = load_font(["arial.ttf", "segoeui.ttf"], 30)
+    f_footer = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
 
-    draw.text((start_x, 260), "Digital Diagnostic & Revenue Roadmap", fill=STYLE["TEXT_DARK"], font=load_font(56, bold=True))
-    target_str = f"Prepared for: {contact_name} & Leadership at {lead_name}" if contact_name not in ["Leadership", "Business Leader"] else f"Prepared Exclusively for: {lead_name}"
-    draw.text((start_x, 340), target_str, fill=STYLE["TEXT_MUTED"], font=load_font(28))
+    # Palette
+    TEXT_DARK = (15, 23, 42)
+    TEXT_BODY = (51, 65, 85)
+    TEXT_MUTED = (100, 116, 139)
+    BLUE = (37, 99, 235)
+    BLUE_BG = (239, 246, 255)
+    BORDER = (226, 232, 240)
+    CARD_BG = (255, 255, 255)
+    GREEN = (22, 163, 74)
+    RED = (220, 38, 38)
+    AMBER = (217, 119, 6)
 
-    bullet_y = 440
-    font_b = load_font(32)
-    for b in bullets[:3]:
-        draw.ellipse([start_x, bullet_y + 18, start_x + 16, bullet_y + 34], fill=STYLE["BLUE"])
-        draw.text((start_x + 36, bullet_y), b, fill=STYLE["TEXT_BODY"], font=font_b)
-        bullet_y += 75
+    mx = 110
+    y = 100
 
-    # Prospect Logo or Rounded Badge Fallback
-    logo_drawn = False
-    if logo_path and os.path.exists(logo_path):
+    # 1. HEADER & BRAND BAR
+    brand_title = CONFIG.get("BRAND_PRIMARY", "ELKINS & CO.").upper()
+    draw.text((mx, y), brand_title, fill=TEXT_DARK, font=f_brand)
+    bbox_b = draw.textbbox((mx, y), brand_title, font=f_brand)
+    draw.line([(bbox_b[2] + 25, y + 6), (bbox_b[2] + 25, y + 54)], fill=TEXT_MUTED, width=3)
+    draw.text((bbox_b[2] + 45, y + 10), CONFIG.get("BRAND_SUBTITLE", "REVENUE STRATEGIES"), fill=BLUE, font=f_subbrand)
+
+    # Eyebrow Tag Pill
+    pill_text = "EXECUTIVE DIAGNOSTIC REPORT"
+    pb = draw.textbbox((0, 0), pill_text, font=f_table_head)
+    pw = pb[2] - pb[0] + 50
+    draw.rounded_rectangle([W - mx - pw, y, W - mx, y + 60], radius=12, fill=BLUE_BG, outline=BLUE, width=2)
+    draw.text((W - mx - pw + 25, y + 12), pill_text, fill=BLUE, font=f_table_head)
+
+    y += 90
+    draw.line([(mx, y), (W - mx, y)], fill=BORDER, width=3)
+    y += 45
+
+    # 2. PROSPECT HERO BANNER
+    hero_h = 160
+    draw.rounded_rectangle([mx, y, W - mx, y + hero_h], radius=18, fill=CARD_BG, outline=BORDER, width=2)
+    draw.text((mx + 45, y + 28), f"Performance Audit: {lead.get('name', 'N/A')}", fill=TEXT_DARK, font=f_title)
+
+    contact_name = contact.get("name", "Leadership") if contact else "Leadership"
+    contact_title = contact.get("title", "Owner") if contact else "Owner"
+    meta_1 = f"Decision Maker: {contact_name} ({contact_title})   |   Phone: {lead.get('phone', 'N/A')}"
+    meta_2 = f"Primary Domain: {lead.get('website', 'N/A')}   |   Status: Live Audit Captured"
+    draw.text((mx + 45, y + 90), meta_1, fill=TEXT_BODY, font=f_meta)
+    draw.text((mx + 1150, y + 90), meta_2, fill=TEXT_MUTED, font=f_meta)
+
+    y += hero_h + 45
+
+    # 3. SPLIT SECTION: BROWSER VIEWPORT MOCKUP vs CORE METRIC GAUGES
+    split_h = 750
+    left_w = 1180
+    right_x = mx + left_w + 50
+    right_w = W - mx - right_x
+
+    # Left: Desktop Browser Mockup
+    draw.rounded_rectangle([mx, y, mx + left_w, y + split_h], radius=18, fill=CARD_BG, outline=BORDER, width=2)
+    draw.rounded_rectangle([mx, y, mx + left_w, y + 54], radius=18, fill=(241, 245, 249))
+    draw.rectangle([mx, y + 36, mx + left_w, y + 54], fill=(241, 245, 249))
+    draw.ellipse([mx + 25, y + 20, mx + 43, y + 38], fill=(239, 68, 68))
+    draw.ellipse([mx + 55, y + 20, mx + 73, y + 38], fill=(245, 158, 11))
+    draw.ellipse([mx + 85, y + 20, mx + 103, y + 38], fill=(34, 197, 94))
+    draw.text((mx + 130, y + 14), lead.get("website", "https://"), fill=TEXT_MUTED, font=f_table_body)
+
+    if shot_path and os.path.exists(shot_path):
         try:
-            with Image.open(logo_path) as l_img:
-                l_img = l_img.convert("RGBA")
-                l_img.thumbnail((300, 100), Image.Resampling.LANCZOS)
-                img.paste(l_img, (W - 480, 180), l_img)
-                logo_drawn = True
-        except Exception:
-            logo_drawn = False
-    if not logo_drawn:
-        draw.rounded_rectangle([W - 480, 180, W - 220, 240], radius=12, fill=(241, 245, 249), outline=STYLE["DIVIDER"], width=1)
-        draw.text((W - 430, 198), "PROSPECT", fill=STYLE["TEXT_MUTED"], font=load_font(20, bold=True))
-
-    draw.text((start_x, H - 120), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=STYLE["TEXT_MUTED"], font=load_font(18, bold=True))
-    draw.text((W - 480, H - 120), CONFIG["AGENCY_WEBSITE"], fill=STYLE["BLUE"], font=load_font(18, bold=True))
-    img.save(out_path)
-
-def render_viewport_screenshot_slide(screenshot_path: str, bullets: list, out_path: str):
-    """Slide 2: Live Viewport Screenshot Mockup."""
-    W, H = 1920, 1080
-    img = Image.new("RGB", (W, H), color=STYLE["BG"])
-    draw = ImageDraw.Draw(img)
-    draw_card_base(draw, W, H)
-
-    start_x = 170
-    current_y = 195
-
-    # Dynamic Eyebrow Pill
-    pill_text = "02 / VISUAL CONVERSION AUDIT"
-    font_pill = load_font(18, bold=True)
-    p_box = draw.textbbox((0, 0), pill_text, font=font_pill)
-    pw, ph = p_box[2] - p_box[0], p_box[3] - p_box[1]
-    draw.rounded_rectangle([start_x, current_y, start_x + pw + 36, current_y + ph + 20], radius=8, fill=STYLE["PILL_BG"], outline=(219, 234, 254), width=1)
-    draw.text((start_x + 18, current_y + 10), pill_text, fill=STYLE["BLUE"], font=font_pill)
-
-    current_y += ph + 55
-    draw.text((start_x, current_y), "Above-the-Fold Viewport & Mobile Access", fill=STYLE["TEXT_DARK"], font=load_font(52, bold=True))
-
-    # Left: Mockup Frame for Screenshot
-    frame_x, frame_y, frame_w, frame_h = start_x, current_y + 90, 880, 520
-    draw.rounded_rectangle([frame_x, frame_y, frame_x + frame_w, frame_y + frame_h], radius=16, fill=(255, 255, 255), outline=STYLE["DIVIDER"], width=2)
-    # Browser Top Bar
-    draw.rounded_rectangle([frame_x, frame_y, frame_x + frame_w, frame_y + 40], radius=16, fill=(241, 245, 249))
-    draw.rectangle([frame_x, frame_y + 25, frame_x + frame_w, frame_y + 40], fill=(241, 245, 249))
-    draw.ellipse([frame_x + 15, frame_y + 14, frame_x + 27, frame_y + 26], fill=(239, 68, 68))
-    draw.ellipse([frame_x + 35, frame_y + 14, frame_x + 47, frame_y + 26], fill=(245, 158, 11))
-    draw.ellipse([frame_x + 55, frame_y + 14, frame_x + 67, frame_y + 26], fill=(34, 197, 94))
-
-    if screenshot_path and os.path.exists(screenshot_path):
-        try:
-            with Image.open(screenshot_path) as s_img:
+            with Image.open(shot_path) as s_img:
                 s_img = s_img.convert("RGB")
-                shot_h = frame_h - 42
-                s_img = s_img.resize((frame_w - 4, shot_h), Image.Resampling.LANCZOS)
-                img.paste(s_img, (frame_x + 2, frame_y + 41))
+                shot_render_h = split_h - 58
+                s_resized = s_img.resize((left_w - 6, shot_render_h), Image.Resampling.LANCZOS)
+                img.paste(s_resized, (mx + 3, y + 55))
         except Exception:
-            draw.text((frame_x + 240, frame_y + 240), "[Viewport Capture Active]", fill=STYLE["TEXT_MUTED"], font=load_font(26))
+            draw.text((mx + 320, y + 340), "[Viewport Capture Active]", fill=TEXT_MUTED, font=f_sec)
     else:
-        draw.text((frame_x + 240, frame_y + 240), "[Viewport Capture Active]", fill=STYLE["TEXT_MUTED"], font=load_font(26))
+        draw.text((mx + 320, y + 340), "[Viewport Capture Active]", fill=TEXT_MUTED, font=f_sec)
 
-    # Right: Scannable Bullets
-    right_x = start_x + frame_w + 70
-    right_y = frame_y + 50
-    font_b = load_font(30)
-    for b in bullets[:3]:
-        draw.ellipse([right_x, right_y + 18, right_x + 16, right_y + 34], fill=STYLE["BLUE"])
-        draw.text((right_x + 36, right_y), b, fill=STYLE["TEXT_BODY"], font=font_b)
-        right_y += 100
+    # Right: Diagnostic Gauges
+    scores = audit.get("scores", {})
+    gauge_list = [
+        ("Mobile Conversion Readiness", scores.get("mobile_conversion_readiness", scores.get("mobile", 52))),
+        ("Page Load Speed Index", scores.get("website_speed", scores.get("speed", 65))),
+        ("Directory / NAP Consistency", scores.get("directory_nap_consistency", 86)),
+        ("Pipeline Leakage Defense", scores.get("pipeline_leakage_index", 70))
+    ]
 
-    draw.text((start_x, H - 120), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=STYLE["TEXT_MUTED"], font=load_font(18, bold=True))
-    draw.text((W - 480, H - 120), CONFIG["AGENCY_WEBSITE"], fill=STYLE["BLUE"], font=load_font(18, bold=True))
-    img.save(out_path)
+    card_h = (split_h - (3 * 22)) // 4
+    gy = y
+    for label, val in gauge_list:
+        draw.rounded_rectangle([right_x, gy, right_x + right_w, gy + card_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
+        score_c = GREEN if val >= 80 else (AMBER if val >= 60 else RED)
 
-def render_competitor_slide(target: dict, target_fp: dict, rival: dict, rival_fp: dict, bullets: list, out_path: str):
-    """Slide 3: Head-to-Head Competitor Benchmark."""
-    W, H = 1920, 1080
-    img = Image.new("RGB", (W, H), color=STYLE["BG"])
-    draw = ImageDraw.Draw(img)
-    draw_card_base(draw, W, H)
+        draw.text((right_x + 35, gy + 26), label, fill=TEXT_DARK, font=f_card_title)
+        draw.text((right_x + right_w - 140, gy + 15), f"{val}", fill=score_c, font=f_score_num)
 
-    start_x = 170
-    current_y = 195
+        bar_w = right_w - 70
+        bar_y = gy + 96
+        draw.rounded_rectangle([right_x + 35, bar_y, right_x + 35 + bar_w, bar_y + 16], radius=8, fill=(226, 232, 240))
+        draw.rounded_rectangle([right_x + 35, bar_y, right_x + 35 + int(bar_w * (val / 100)), bar_y + 16], radius=8, fill=score_c)
+        gy += card_h + 22
 
-    pill_text = "03 / COMPETITIVE BENCHMARK"
-    font_pill = load_font(18, bold=True)
-    p_box = draw.textbbox((0, 0), pill_text, font=font_pill)
-    pw, ph = p_box[2] - p_box[0], p_box[3] - p_box[1]
-    draw.rounded_rectangle([start_x, current_y, start_x + pw + 36, current_y + ph + 20], radius=8, fill=STYLE["PILL_BG"], outline=(219, 234, 254), width=1)
-    draw.text((start_x + 18, current_y + 10), pill_text, fill=STYLE["BLUE"], font=font_pill)
+    y += split_h + 45
 
-    current_y += ph + 55
-    draw.text((start_x, current_y), "Local Market Benchmark Comparison", fill=STYLE["TEXT_DARK"], font=load_font(52, bold=True))
+    # 4. TECHNICAL INFRASTRUCTURE & CONVERSION STACK
+    draw.text((mx, y), "TECHNICAL ARCHITECTURE & CONVERSION HYGIENE", fill=TEXT_DARK, font=f_sec)
+    y += 55
 
-    card_y = current_y + 90
-    card_w, card_h = 750, 240
+    tech_w = W - (2 * mx)
+    tech_h = 240
+    draw.rounded_rectangle([mx, y, mx + tech_w, y + tech_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
 
-    # Prospect Card
-    draw.rounded_rectangle([start_x, card_y, start_x + card_w, card_y + card_h], radius=16, fill=(255, 255, 255), outline=STYLE["DIVIDER"], width=2)
-    draw.text((start_x + 40, card_y + 30), f"YOUR BUSINESS: {target['name'][:30]}", fill=STYLE["TEXT_DARK"], font=load_font(24, bold=True))
-    draw.text((start_x + 40, card_y + 85), f"Google Reviews: {target.get('rating', 0)}★ ({target.get('review_count', 0)} reviews)", fill=STYLE["TEXT_BODY"], font=load_font(22))
-    draw.text((start_x + 40, card_y + 130), f"Mobile Page Load: {target_fp.get('load_speed_sec', 1.5)}s", fill=STYLE["TEXT_BODY"], font=load_font(22))
-    draw.text((start_x + 40, card_y + 175), f"Lead Capture: {'Active Form & Call' if target_fp.get('has_lead_form') and target_fp.get('has_click_to_call') else 'Conversion Friction Present'}", fill=STYLE["RED"] if not target_fp.get('has_click_to_call') else STYLE["GREEN"], font=load_font(22, bold=True))
+    tech_items = [
+        ("CMS Framework", footprint.get("cms_framework", "Custom / Static HTML"), False),
+        ("Inbound Lead Form", "Detected Above Fold" if footprint.get("has_lead_form") else "MISSING / Friction Risk", not footprint.get("has_lead_form")),
+        ("Click-to-Call Link", "Configured & Active" if footprint.get("has_click_to_call") else "MISSING on Mobile", not footprint.get("has_click_to_call")),
+        ("SSL Security", "Enforced (HTTPS)" if footprint.get("has_ssl") else "NOT SECURE", not footprint.get("has_ssl")),
+        ("Google Analytics 4", "Active Tracking" if footprint.get("has_ga4") else "NOT DETECTED", not footprint.get("has_ga4")),
+        ("Tag Manager (GTM)", "Installed" if footprint.get("has_gtm") else "Not Deployed", False),
+        ("Meta Ad Pixel", "Active" if footprint.get("has_meta_pixel") else "Not Detected", False),
+        ("Structured Schema", "LocalBusiness Active" if footprint.get("has_schema") else "MISSING JSON-LD", not footprint.get("has_schema")),
+        ("Booking Platform", footprint.get("booking_platform", "None Detected"), False),
+        ("Live Chat Platform", footprint.get("chat_platform", "None Detected"), False),
+        ("Image Alt Tags", f"{footprint.get('images_missing_alt', 0)} of {footprint.get('total_images', 0)} Missing", footprint.get("images_missing_alt", 0) > 5),
+        ("Heading Checks", footprint.get("heading_issue", "Clean Hierarchy"), False)
+    ]
 
-    # Rival Card
-    rival_x = start_x + card_w + 60
-    rival_name = rival["name"] if rival else "Local Benchmark Rival"
-    draw.rounded_rectangle([rival_x, card_y, rival_x + card_w, card_y + card_h], radius=16, fill=(255, 255, 255), outline=STYLE["BLUE"], width=2)
-    draw.text((rival_x + 40, card_y + 30), f"BENCHMARK: {rival_name[:30]}", fill=STYLE["BLUE"], font=load_font(24, bold=True))
-    draw.text((rival_x + 40, card_y + 85), f"Google Reviews: {rival.get('rating', 4.8) if rival else 4.8}★ ({rival.get('review_count', 180) if rival else 180} reviews)", fill=STYLE["TEXT_BODY"], font=load_font(22))
-    draw.text((rival_x + 40, card_y + 130), f"Mobile Page Load: {rival_fp.get('load_speed_sec', 1.2) if rival_fp else 1.2}s", fill=STYLE["TEXT_BODY"], font=load_font(22))
-    draw.text((rival_x + 40, card_y + 175), "Lead Capture: Streamlined Mobile Funnel", fill=STYLE["GREEN"], font=load_font(22, bold=True))
+    col_span = tech_w // 3
+    for i, (label, val_str, is_flagged) in enumerate(tech_items):
+        t_col = i // 4
+        t_row = i % 4
+        ix = mx + 40 + (t_col * col_span)
+        iy = y + 26 + (t_row * 48)
 
-    # Comparative Bullets
-    bullet_y = card_y + card_h + 50
-    font_b = load_font(30)
-    for b in bullets[:3]:
-        draw.ellipse([start_x, bullet_y + 18, start_x + 16, bullet_y + 34], fill=STYLE["BLUE"])
-        draw.text((start_x + 36, bullet_y), b, fill=STYLE["TEXT_BODY"], font=font_b)
-        bullet_y += 65
+        status_color = RED if is_flagged else (GREEN if any(k in val_str for k in ["Active", "Configured", "Detected"]) else TEXT_BODY)
+        draw.text((ix, iy), f"{label}:", fill=TEXT_MUTED, font=f_table_body)
+        draw.text((ix + 260, iy), val_str, fill=status_color, font=f_table_body_b)
 
-    draw.text((start_x, H - 120), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=STYLE["TEXT_MUTED"], font=load_font(18, bold=True))
-    draw.text((W - 480, H - 120), CONFIG["AGENCY_WEBSITE"], fill=STYLE["BLUE"], font=load_font(18, bold=True))
-    img.save(out_path)
+    y += tech_h + 45
 
-def render_bullet_slide(pill_text: str, main_title: str, bullets: list, out_path: str):
-    """Slides 4-9: Core Diagnostic & Strategy Cards."""
-    W, H = 1920, 1080
-    img = Image.new("RGB", (W, H), color=STYLE["BG"])
-    draw = ImageDraw.Draw(img)
-    draw_card_base(draw, W, H)
+    # 5. COMPETITIVE BENCHMARK MATRIX
+    draw.text((mx, y), "LOCAL COMPETITOR MARKET BENCHMARK", fill=TEXT_DARK, font=f_sec)
+    y += 55
 
-    start_x = 170
-    current_y = 195
+    bench_h = 240
+    draw.rounded_rectangle([mx, y, mx + tech_w, y + bench_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
 
-    # Auto-Padding Pill
-    font_pill = load_font(18, bold=True)
-    p_box = draw.textbbox((0, 0), pill_text, font=font_pill)
-    pw, ph = p_box[2] - p_box[0], p_box[3] - p_box[1]
-    draw.rounded_rectangle([start_x, current_y, start_x + pw + 36, current_y + ph + 20], radius=8, fill=STYLE["PILL_BG"], outline=(219, 234, 254), width=1)
-    draw.text((start_x + 18, current_y + 10), pill_text, fill=STYLE["BLUE"], font=font_pill)
+    col1_x = mx + 40
+    col2_x = mx + 700
+    col3_x = mx + 1350
+    col4_x = mx + 1850
 
-    current_y += ph + 55
-    draw.text((start_x, current_y), main_title, fill=STYLE["TEXT_DARK"], font=load_font(52, bold=True))
+    draw.text((col1_x, y + 22), "BENCHMARK DIMENSION", fill=TEXT_MUTED, font=f_table_head)
+    draw.text((col2_x, y + 22), f"YOUR BUSINESS ({lead.get('name', 'Prospect')[:20]})", fill=TEXT_DARK, font=f_table_head)
+    rival_label = rival.get('name', 'Top Local Competitor')[:20] if rival else 'Top Local Competitor'
+    draw.text((col3_x, y + 22), f"RIVAL ({rival_label})", fill=BLUE, font=f_table_head)
+    draw.text((col4_x, y + 22), "ESTIMATED REVENUE IMPACT", fill=TEXT_MUTED, font=f_table_head)
 
-    current_y += 120
-    font_b = load_font(34)
-    for b in bullets[:3]:
-        draw.ellipse([start_x, current_y + 20, start_x + 18, current_y + 38], fill=STYLE["BLUE"])
-        draw.text((start_x + 40, current_y), b, fill=STYLE["TEXT_BODY"], font=font_b)
-        current_y += 85
+    draw.line([(mx + 30, y + 68), (mx + tech_w - 30, y + 68)], fill=BORDER, width=2)
 
-    draw.text((start_x, H - 120), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=STYLE["TEXT_MUTED"], font=load_font(18, bold=True))
-    draw.text((W - 480, H - 120), CONFIG["AGENCY_WEBSITE"], fill=STYLE["BLUE"], font=load_font(18, bold=True))
-    img.save(out_path)
+    t_stars = f"{lead.get('rating', 'N/A')}★ ({lead.get('review_count', 0)} reviews)"
+    r_stars = f"{rival.get('rating', 4.8)}★ ({rival.get('review_count', 0)} reviews)" if rival else "N/A"
+    t_speed = f"{footprint.get('load_speed_sec', 'N/A')}s"
+    r_speed = f"{rival_fp.get('load_speed_sec', '1.1')}s" if rival_fp else "N/A"
 
-def render_outro_slide(out_path: str):
-    """Slide 10: Call-To-Action & Contact Outro Card."""
-    W, H = 1920, 1080
-    img = Image.new("RGB", (W, H), color=STYLE["BG"])
-    draw = ImageDraw.Draw(img)
-    draw_card_base(draw, W, H)
+    b_rows = [
+        ("Public Reputation & Trust", t_stars, r_stars, audit.get("competitor_gap_margin", "Rival captures more high-intent volume")[:34]),
+        ("Speed & Mobile Responsiveness", t_speed, r_speed, "Speed latency causing mobile visitor bounce"),
+        ("Conversion Capture Infrastructure", "Forms & Call Check", "Optimized Booking Flow", "Pipeline leakage to top-ranking local options")
+    ]
 
-    start_x = 170
-    draw.text((start_x, 240), "Ready to Eliminate Digital Leakage?", fill=STYLE["TEXT_DARK"], font=load_font(58, bold=True))
-    
-    # Custom CTA Form Text
-    draw.text((start_x, 330), CONFIG["CUSTOM_CTA"], fill=STYLE["BLUE"], font=load_font(30, bold=True))
+    for idx, (m_col, t_col, r_col, i_col) in enumerate(b_rows):
+        ry = y + 84 + (idx * 48)
+        draw.text((col1_x, ry), m_col, fill=TEXT_BODY, font=f_table_body)
+        draw.text((col2_x, ry), t_col, fill=TEXT_DARK, font=f_table_body_b)
+        draw.text((col3_x, ry), r_col, fill=BLUE, font=f_table_body_b)
+        draw.text((col4_x, ry), i_col, fill=RED if any(k in i_col for k in ["leakage", "bounce"]) else TEXT_BODY, font=f_table_body)
 
-    card_y = 440
-    draw.rounded_rectangle([start_x, card_y, W - start_x, card_y + 260], radius=20, fill=(255, 255, 255), outline=STYLE["DIVIDER"], width=2)
+    y += bench_h + 45
 
-    cy = card_y + 70
-    draw.text((start_x + 60, cy), "VISIT US ONLINE", fill=STYLE["TEXT_MUTED"], font=load_font(20, bold=True))
-    draw.text((start_x + 60, cy + 40), CONFIG["AGENCY_WEBSITE"].lower(), fill=STYLE["BLUE"], font=load_font(30, bold=True))
+    # 6. STRATEGIC BOTTLENECKS & QUICK WIN
+    box_w = (tech_w - 40) // 2
+    box_h = 310
 
-    draw.text((start_x + 550, cy), "DIRECT INQUIRIES", fill=STYLE["TEXT_MUTED"], font=load_font(20, bold=True))
-    draw.text((start_x + 550, cy + 40), CONFIG["AGENCY_PHONE"], fill=STYLE["TEXT_DARK"], font=load_font(30, bold=True))
+    # Weakness Box
+    draw.rounded_rectangle([mx, y, mx + box_w, y + box_h], radius=16, fill=(254, 242, 242), outline=(254, 202, 202), width=2)
+    draw.text((mx + 35, y + 25), "PRIMARY DETECTED REVENUE LEAK", fill=RED, font=f_table_head)
+    weakness_text = audit.get("core_weakness", "Mobile friction and missing tap-to-call links redirect qualified inbound callers.")
+    draw.text((mx + 35, y + 75), weakness_text[:120], fill=TEXT_DARK, font=f_card_title)
+    draw.text((mx + 35, y + 155), "• Mobile abandonment due to missing direct tap-to-call links.", fill=TEXT_BODY, font=f_body)
+    draw.text((mx + 35, y + 205), "• Local searchers bounce due to missing schema JSON-LD indexing.", fill=TEXT_BODY, font=f_body)
+    draw.text((mx + 35, y + 255), "• Unleveraged review volume leaks traffic to higher-rated rivals.", fill=TEXT_BODY, font=f_body)
 
-    draw.text((start_x + 1000, cy), "EMAIL OUR LEADERSHIP", fill=STYLE["TEXT_MUTED"], font=load_font(20, bold=True))
-    draw.text((start_x + 1000, cy + 40), CONFIG["AGENCY_EMAIL"], fill=STYLE["TEXT_DARK"], font=load_font(30, bold=True))
+    # Solution Box
+    bx2 = mx + box_w + 40
+    draw.rounded_rectangle([bx2, y, bx2 + box_w, y + box_h], radius=16, fill=BLUE_BG, outline=(191, 219, 254), width=2)
+    draw.text((bx2 + 35, y + 25), "HIGH-ROI TURNKEY SOLUTION & ROADMAP", fill=BLUE, font=f_table_head)
+    quick_win_text = audit.get("quick_win", "Deploy 1-click tap-to-call mobile links, booking funnel, and local schema.")
+    draw.text((bx2 + 35, y + 75), quick_win_text[:120], fill=TEXT_DARK, font=f_card_title)
+    draw.text((bx2 + 35, y + 155), "• Deploy sticky smartphone tap-to-call links across all pages.", fill=TEXT_BODY, font=f_body)
+    draw.text((bx2 + 35, y + 205), "• Implement LocalBusiness structured schema for Google Map Pack.", fill=TEXT_BODY, font=f_body)
+    draw.text((bx2 + 35, y + 255), "• Launch automated review generation to close the competitor gap.", fill=TEXT_BODY, font=f_body)
 
-    draw.text((start_x, H - 120), "CONFIDENTIAL · PREPARED FOR EXECUTIVE REVIEW", fill=STYLE["TEXT_MUTED"], font=load_font(18, bold=True))
-    draw.text((W - 480, H - 120), CONFIG["AGENCY_WEBSITE"], fill=STYLE["BLUE"], font=load_font(18, bold=True))
-    img.save(out_path)
+    # 7. FOOTER CALL-TO-ACTION
+    foot_y = H - 230
+    draw.rounded_rectangle([mx, foot_y, W - mx, foot_y + 150], radius=16, fill=TEXT_DARK)
+    draw.text((mx + 45, foot_y + 28), "READY TO ELIMINATE REVENUE LEAKAGE AND DOMINATE YOUR LOCAL MARKET?", fill=(255, 255, 255), font=f_card_title)
 
-# ==============================================================================
-# 4. AUDIO & 10-SLIDE ASSET ASSEMBLY
-# ==============================================================================
-def generate_voiceover(text: str, out_path: str):
-    engine = CONFIG.get("TTS_ENGINE", "google").lower()
-    if engine == "elevenlabs":
-        api_key = CONFIG.get("ELEVENLABS_KEY")
-        if api_key and "your-" not in api_key:
-            try:
-                url = f"https://api.elevenlabs.io/v1/text-to-speech/{CONFIG['VOICE_ID']}"
-                headers = {"xi-api-key": api_key, "Content-Type": "application/json"}
-                payload = {
-                    "text": text, "model_id": "eleven_turbo_v2_5",
-                    "voice_settings": {"stability": 0.45, "similarity_boost": 0.80}
-                }
-                res = requests.post(url, headers=headers, json=payload, timeout=20)
-                if res.status_code == 200:
-                    with open(out_path, "wb") as f:
-                        f.write(res.content)
-                    return
-            except Exception:
-                pass
-    gTTS(text=text, lang="en", tld="com", slow=False).save(out_path)
+    contact_c = f"WEB: {CONFIG.get('AGENCY_WEBSITE', 'www.elkinsrevenue.com').lower()}   |   PHONE: {CONFIG.get('AGENCY_PHONE', '917-327-0636')}   |   EMAIL: {CONFIG.get('AGENCY_EMAIL', 'lorren@elkinsrevenue.com')}"
+    draw.text((mx + 45, foot_y + 85), contact_c, fill=BLUE, font=f_footer)
 
-def assemble_video(target: dict, target_fp: dict, contact: dict, audit: dict, rival: dict, rival_fp: dict, out_video_path: str, logo_path: str = None, shot_path: str = None) -> str:
-    clips, temps = [], []
-
-    # Slide 1: Intro Title
-    s1_img, s1_aud = "tmp_s1.png", "tmp_s1.mp3"
-    temps.extend([s1_img, s1_aud])
-    render_title_slide(target['name'], contact['name'], audit["intro_bullets"], s1_img, logo_path)
-    generate_voiceover(audit["intro_voiceover"], s1_aud)
-    a1 = AudioFileClip(s1_aud)
-    clips.append(ImageClip(s1_img).with_duration(a1.duration).with_audio(a1))
-
-    # Slide 2: Viewport Screenshot
-    s2_img, s2_aud = "tmp_s2.png", "tmp_s2.mp3"
-    temps.extend([s2_img, s2_aud])
-    render_viewport_screenshot_slide(shot_path, audit.get("slide_2_viewport_bullets", []), s2_img)
-    generate_voiceover(audit.get("slide_2_viewport_voiceover", "Here is your current above-the-fold layout."), s2_aud)
-    a2 = AudioFileClip(s2_aud)
-    clips.append(ImageClip(s2_img).with_duration(a2.duration).with_audio(a2))
-
-    # Slide 3: Competitor Benchmark
-    s3_img, s3_aud = "tmp_s3.png", "tmp_s3.mp3"
-    temps.extend([s3_img, s3_aud])
-    render_competitor_slide(target, target_fp, rival, rival_fp, audit.get("slide_3_competitor_bullets", []), s3_img)
-    generate_voiceover(audit.get("slide_3_competitor_voiceover", "Here is how your business compares against top local rivals."), s3_aud)
-    a3 = AudioFileClip(s3_aud)
-    clips.append(ImageClip(s3_img).with_duration(a3.duration).with_audio(a3))
-
-    # Slides 4-9: Diagnostic & Roadmap Body Slides
-    for idx, s in enumerate(audit.get("body_slides", [])):
-        si_img, si_aud = f"tmp_sb_{idx}.png", f"tmp_ab_{idx}.mp3"
-        temps.extend([si_img, si_aud])
-        render_bullet_slide(s["pill"], s["title"], s["bullets"], si_img)
-        generate_voiceover(s["voiceover"], si_aud)
-        ai = AudioFileClip(si_aud)
-        clips.append(ImageClip(si_img).with_duration(ai.duration).with_audio(ai))
-
-    # Slide 10: Outro Card
-    s10_img, s10_aud = "tmp_s10.png", "tmp_s10.mp3"
-    temps.extend([s10_img, s10_aud])
-    render_outro_slide(s10_img)
-    generate_voiceover(audit.get("outro_voiceover", f"Connect with our leadership team at {CONFIG['AGENCY_WEBSITE'].lower()}."), s10_aud)
-    a10 = AudioFileClip(s10_aud)
-    clips.append(ImageClip(s10_img).with_duration(a10.duration).with_audio(a10))
-
-    final = concatenate_videoclips(clips, method="compose")
-    final.write_videofile(out_video_path, fps=24, codec="libx264", audio_codec="aac", logger=None)
-
-    for f in temps:
-        if os.path.exists(f):
-            try:
-                os.remove(f)
-            except Exception:
-                pass
-    return out_video_path
-
-def assemble_pdf(target: dict, target_fp: dict, contact: dict, audit: dict, rival: dict, rival_fp: dict, out_pdf_path: str, logo_path: str = None, shot_path: str = None) -> str:
-    temps = []
-    slide_images = []
-
-    # Slide 1
-    s1_img = "tmp_pdf_s1.png"
-    temps.append(s1_img)
-    render_title_slide(target['name'], contact['name'], audit["intro_bullets"], s1_img, logo_path)
-    slide_images.append(Image.open(s1_img).convert("RGB"))
-
-    # Slide 2
-    s2_img = "tmp_pdf_s2.png"
-    temps.append(s2_img)
-    render_viewport_screenshot_slide(shot_path, audit.get("slide_2_viewport_bullets", []), s2_img)
-    slide_images.append(Image.open(s2_img).convert("RGB"))
-
-    # Slide 3
-    s3_img = "tmp_pdf_s3.png"
-    temps.append(s3_img)
-    render_competitor_slide(target, target_fp, rival, rival_fp, audit.get("slide_3_competitor_bullets", []), s3_img)
-    slide_images.append(Image.open(s3_img).convert("RGB"))
-
-    # Slides 4-9
-    for idx, s in enumerate(audit.get("body_slides", [])):
-        si_img = f"tmp_pdf_sb_{idx}.png"
-        temps.append(si_img)
-        render_bullet_slide(s["pill"], s["title"], s["bullets"], si_img)
-        slide_images.append(Image.open(si_img).convert("RGB"))
-
-    # Slide 10
-    s10_img = "tmp_pdf_s10.png"
-    temps.append(s10_img)
-    render_outro_slide(s10_img)
-    slide_images.append(Image.open(s10_img).convert("RGB"))
-
-    if slide_images:
-        slide_images[0].save(out_pdf_path, save_all=True, append_images=slide_images[1:], resolution=100.0)
-
-    for f in temps:
-        if os.path.exists(f):
-            try:
-                os.remove(f)
-            except Exception:
-                pass
+    # Export PDF directly
+    img.save(out_pdf_path, "PDF", resolution=300.0)
+    print(f"  -> Executive Scorecard PDF successfully generated: {out_pdf_path}")
     return out_pdf_path
 
 # ==============================================================================
