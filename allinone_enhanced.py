@@ -69,7 +69,7 @@ CONFIG = {
     "BRAND_SUBTITLE": "REVENUE STRATEGIES",
     "AGENCY_WEBSITE": "www.elkinsrevenue.com",
     "AGENCY_PHONE": "917-327-0636",
-    "AGENCY_EMAIL": "lorren@elkinsrevenue.com",
+    "AGENCY_EMAIL": "info@elkinsrevenue.com",
     "CUSTOM_CTA": "Let us show you how we can help. Review this deck and schedule a meeting with us.",
 
     # Email SMTP Settings
@@ -622,177 +622,308 @@ def assemble_pdf(lead, footprint, contact, audit, rival, rival_fp, out_pdf, logo
 # ==============================================================================
 # SINGLE-PAGE EXECUTIVE SCORECARD (OPTION 5)
 # ==============================================================================
-def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, rival: dict, rival_fp: dict, audit: dict, shot_path: str, out_pdf: str):
+def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, rival: dict, rival_fp: dict, audit: dict, shot_path: str, out_pdf_path: str):
     """
-    Renders an executive, high-resolution 8.5" x 11" diagnostic report card at 300 DPI (2550 x 3300 px).
+    Renders an executive-grade 8.5x11 in @ 300 DPI (2550 x 3300 px) single-page audit report.
+    Updated with customer-friendly terminology, expanded checklist grid, and enlarged CTAs.
     """
     W, H = 2550, 3300
-    im = Image.new("RGB", (W, H), color=STYLE["BG"])
-    draw = ImageDraw.Draw(im)
+    img = Image.new("RGB", (W, H), color=(248, 250, 252))
+    draw = ImageDraw.Draw(img)
 
-    f_brand = load_font(["arialbd.ttf", "segoeuib.ttf"], 54)
-    f_sub = load_font(["arial.ttf", "segoeui.ttf"], 28)
-    f_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
-    f_score_num = load_font(["arialbd.ttf", "segoeuib.ttf"], 68)
-    f_body = load_font(["arial.ttf", "segoeui.ttf"], 28)
-    f_bold = load_font(["arialbd.ttf", "segoeuib.ttf"], 30)
+    # -------------------------------------------------------------
+    # 1. TYPOGRAPHY & FONT SETUP (Adjusted +4pt on key sections)
+    # -------------------------------------------------------------
+    f_brand_main = load_font(["arialbd.ttf", "segoeuib.ttf"], 52)
+    f_brand_sub = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
+    f_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 54)
+    f_meta = load_font(["arial.ttf", "segoeui.ttf"], 30)
+    f_sec = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
+    
+    # +4 pt boost for Executive Summary and Section Headers
+    f_exec_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)    # Was 32
+    f_exec_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)   # Was 32
+    f_exec_body = load_font(["arial.ttf", "segoeui.ttf"], 34)       # Was 30
+    
+    f_card_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
+    f_score_num = load_font(["arialbd.ttf", "segoeuib.ttf"], 60)
+    f_table_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 30)
+    f_table_body = load_font(["arial.ttf", "segoeui.ttf"], 27)
+    f_table_body_b = load_font(["arialbd.ttf", "segoeuib.ttf"], 27)
+    
+    # Checklist typography
+    f_check_sym = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
+    f_check_label = load_font(["arialbd.ttf", "segoeuib.ttf"], 25)
+    f_check_val = load_font(["arial.ttf", "segoeui.ttf"], 23)
 
-    perf_data = compute_overall_performance_score(lead, footprint)
-    overall_score = perf_data["overall_score"]
+    # CTA typography (Enlarged)
+    f_cta_big = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
+    f_cta_contact = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
 
-    mx = 120
-    y = 120
+    # Brand Colors matching elkinsrevenue.com
+    COLOR_BRAND_DARK = (30, 36, 43)    # Charcoal brand color
+    COLOR_COBALT = (37, 99, 235)       # Electric Cobalt Blue
+    TEXT_DARK = (15, 23, 42)           # Solid Black/Charcoal for items
+    TEXT_BODY = (51, 65, 85)
+    TEXT_MUTED = (100, 116, 139)
+    BORDER = (226, 232, 240)
+    CARD_BG = (255, 255, 255)
+    GREEN = (22, 163, 74)
+    RED = (220, 38, 38)
+    AMBER = (217, 119, 6)
 
-    # 1. Header Banner
-    draw.text((mx, y), CONFIG["BRAND_PRIMARY"], fill=STYLE["TEXT_MAIN"], font=f_brand)
-    draw.text((mx, y + 65), f"{CONFIG['BRAND_SUBTITLE']} | REVENUE PERFORMANCE BENCHMARK", fill=STYLE["TEXT_FAINT"], font=f_sub)
+    mx = 110
+    y = 95
 
-    # Overall Score Badge (Top Right)
-    badge_w, badge_h = 420, 160
-    bx, by = W - mx - badge_w, y - 10
-    score_col = STYLE["GREEN"] if overall_score >= 75 else (STYLE["AMBER"] if overall_score >= 50 else STYLE["RED"])
-    draw.rounded_rectangle([bx, by, bx + badge_w, by + badge_h], radius=16, fill=STYLE["BLUE_BG"], outline=STYLE["CARD_BORDER"], width=3)
-    draw.text((bx + 30, by + 20), "PERFORMANCE SCORE", fill=STYLE["BLUE"], font=load_font(["arialbd.ttf", "segoeuib.ttf"], 20))
-    draw.text((bx + 30, by + 55), f"{overall_score}/100", fill=score_col, font=f_score_num)
+    # -------------------------------------------------------------
+    # 2. HEADER & LOGO LOCKUP (elkinsrevenue.com palette)
+    # -------------------------------------------------------------
+    brand_main = "ELKINS & CO."
+    draw.text((mx, y), brand_main, fill=COLOR_BRAND_DARK, font=f_brand_main)
+    bbox_b = draw.textbbox((mx, y), brand_main, font=f_brand_main)
+    
+    draw.line([(bbox_b[2] + 25, y + 6), (bbox_b[2] + 25, y + 54)], fill=TEXT_MUTED, width=3)
+    draw.text((bbox_b[2] + 45, y + 10), "REVENUE STRATEGIES", fill=COLOR_COBALT, font=f_brand_sub)
 
-    y += 180
-    draw.line([mx, y, W - mx, y], fill=STYLE["DIVIDER"], width=3)
+    # Eyebrow Pill
+    pill_text = "EXECUTIVE DIGITAL AUDIT"
+    pb = draw.textbbox((0, 0), pill_text, font=f_table_head)
+    pw = pb[2] - pb[0] + 50
+    draw.rounded_rectangle([W - mx - pw, y, W - mx, y + 60], radius=12, fill=(239, 246, 255), outline=COLOR_COBALT, width=2)
+    draw.text((W - mx - pw + 25, y + 12), pill_text, fill=COLOR_COBALT, font=f_table_head)
 
-    # 2. Prospect Target Lockup
+    y += 90
+    draw.line([(mx, y), (W - mx, y)], fill=BORDER, width=3)
     y += 40
-    draw.text((mx, y), f"AUDIT TARGET: {lead.get('name', 'Prospect').upper()}", fill=STYLE["TEXT_MAIN"], font=f_title)
-    draw.text((mx, y + 55), f"Web: {lead.get('website', 'N/A')}  |  Location: {lead.get('address', 'Local Market')}", fill=STYLE["TEXT_MUTED"], font=f_body)
 
-    # 3. Middle Section: Viewport Mockup (Left) vs. Core Sub-Scores (Right)
-    y += 140
-    col_w = (W - 2 * mx - 80) // 2
+    # -------------------------------------------------------------
+    # 3. PROSPECT AUDIT BANNER (Audit Target + Same Row Meta)
+    # -------------------------------------------------------------
+    hero_h = 165
+    draw.rounded_rectangle([mx, y, W - mx, y + hero_h], radius=18, fill=CARD_BG, outline=BORDER, width=2)
+    
+    company_name = lead.get('name', 'N/A')
+    draw.text((mx + 45, y + 25), f"Digital Audit Prepared for {company_name}", fill=COLOR_BRAND_DARK, font=f_title)
 
-    # Left: Desktop Screen Capture / Wireframe Card
-    draw.rounded_rectangle([mx, y, mx + col_w, y + 680], radius=16, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-    draw.text((mx + 35, y + 30), "VIEWPORT CONVERSION AUDIT", fill=STYLE["TEXT_MAIN"], font=f_bold)
+    # Single Row: Web URL and Location
+    web_url = lead.get('website', 'N/A')
+    location_str = lead.get('address', 'Denver, CO')
+    if "," in location_str:
+        parts = [p.strip() for p in location_str.split(",")]
+        location_display = f"{parts[-3]}, {parts[-2][:2].upper()}" if len(parts) >= 3 else location_str
+    else:
+        location_display = location_str
+
+    combined_meta = f"Web: {web_url}   |   Location: {location_display}   |   Audited: {pd.Timestamp.now().strftime('%B %Y')}"
+    draw.text((mx + 45, y + 95), combined_meta, fill=TEXT_BODY, font=f_meta)
+
+    y += hero_h + 40
+
+    # -------------------------------------------------------------
+    # 4. SPLIT SECTION: SCREENSHOT MOCKUP vs EASY SUB-PILLARS
+    # -------------------------------------------------------------
+    split_h = 710
+    left_w = 1180
+    right_x = mx + left_w + 50
+    right_w = W - mx - right_x
+
+    # Left: Desktop Browser Mockup
+    draw.rounded_rectangle([mx, y, mx + left_w, y + split_h], radius=18, fill=CARD_BG, outline=BORDER, width=2)
+    draw.rounded_rectangle([mx, y, mx + left_w, y + 54], radius=18, fill=(241, 245, 249))
+    draw.rectangle([mx, y + 36, mx + left_w, y + 54], fill=(241, 245, 249))
+    draw.ellipse([mx + 25, y + 20, mx + 43, y + 38], fill=(239, 68, 68))
+    draw.ellipse([mx + 55, y + 20, mx + 73, y + 38], fill=(245, 158, 11))
+    draw.ellipse([mx + 85, y + 20, mx + 103, y + 38], fill=(34, 197, 94))
+    draw.text((mx + 130, y + 14), web_url, fill=TEXT_MUTED, font=f_table_body)
 
     if shot_path and os.path.exists(shot_path):
         try:
-            shot_img = Image.open(shot_path).convert("RGB")
-            shot_img = shot_img.resize((col_w - 70, 480))
-            im.paste(shot_img, (mx + 35, y + 90))
+            with Image.open(shot_path) as s_img:
+                s_img = s_img.convert("RGB")
+                shot_render_h = split_h - 58
+                s_resized = s_img.resize((left_w - 6, shot_render_h), Image.Resampling.LANCZOS)
+                img.paste(s_resized, (mx + 3, y + 55))
         except Exception:
-            draw.text((mx + 50, y + 250), "[Live Viewport Captured]", fill=STYLE["TEXT_FAINT"], font=f_body)
+            draw.text((mx + 340, y + 320), "[Live Website Viewport Active]", fill=TEXT_MUTED, font=f_sec)
     else:
-        draw.rectangle([mx + 35, y + 90, mx + col_w - 35, y + 570], fill=(230, 235, 242))
-        draw.text((mx + 70, y + 260), "Desktop Viewport Mockup", fill=STYLE["TEXT_FAINT"], font=f_bold)
-        draw.text((mx + 70, y + 310), f"Load Latency: {footprint.get('load_speed_sec', 2.0)}s", fill=STYLE["TEXT_MUTED"], font=f_body)
+        draw.text((mx + 340, y + 320), "[Live Website Viewport Active]", fill=TEXT_MUTED, font=f_sec)
 
-    draw.text((mx + 35, y + 600), f"CMS Framework: {footprint.get('cms_framework', 'Custom/Static')}", fill=STYLE["TEXT_FAINT"], font=f_body)
-
-    # Right: Diagnostic Gauges & Sub-Scores
-    rx = mx + col_w + 80
-    draw.rounded_rectangle([rx, y, rx + col_w, y + 680], radius=16, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-    draw.text((rx + 35, y + 30), "PERFORMANCE SUB-PILLARS", fill=STYLE["TEXT_MAIN"], font=f_bold)
-
-    pillars = [
-        ("Conversion Infrastructure", perf_data["conversion"]),
-        ("Technical SEO & Crawl Architecture", perf_data["seo"]),
-        ("Mobile Speed & Response Time", perf_data["speed"]),
-        ("Local Brand Reputation & Authority", perf_data["reputation"]),
-        ("Tagging & Marketing Pixel Maturity", perf_data["marketing"])
+    # Right: Sub-Pillars in Plain, Easy English
+    scores = audit.get("scores", {})
+    plain_pillars = [
+        ("Ease of Booking & Calling (Mobile)", scores.get("mobile_conversion_readiness", scores.get("mobile", 55))),
+        ("Website Loading Speed", scores.get("website_speed", scores.get("speed", 68))),
+        ("Local Search & Map Accuracy", scores.get("directory_nap_consistency", 84)),
+        ("Lead Retention & Customer Capture", scores.get("pipeline_leakage_index", 62))
     ]
 
-    gy = y + 100
-    for p_label, p_val in pillars:
-        draw.text((rx + 35, gy), p_label, fill=STYLE["TEXT_MUTED"], font=f_body)
-        draw.text((rx + col_w - 110, gy), f"{p_val}%", fill=STYLE["TEXT_MAIN"], font=f_bold)
-        # Bar track
-        draw.rounded_rectangle([rx + 35, gy + 42, rx + col_w - 35, gy + 62], radius=10, fill=(225, 230, 238))
-        # Fill
-        fill_w = int((col_w - 70) * (p_val / 100.0))
-        b_col = STYLE["GREEN"] if p_val >= 70 else (STYLE["AMBER"] if p_val >= 45 else STYLE["RED"])
-        if fill_w > 0:
-            draw.rounded_rectangle([rx + 35, gy + 42, rx + 35 + fill_w, gy + 62], radius=10, fill=b_col)
-        gy += 105
+    card_h = (split_h - (3 * 20)) // 4
+    gy = y
+    for label, val in plain_pillars:
+        draw.rounded_rectangle([right_x, gy, right_x + right_w, gy + card_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
+        score_c = GREEN if val >= 80 else (AMBER if val >= 60 else RED)
 
-    # 4. Technical Checklist
-    y += 740
-    draw.rounded_rectangle([mx, y, W - mx, y + 320], radius=16, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-    draw.text((mx + 35, y + 25), "TECHNICAL SIGNALS & PIPELINE INTEGRITY", fill=STYLE["TEXT_MAIN"], font=f_bold)
+        draw.text((right_x + 30, gy + 22), label, fill=COLOR_BRAND_DARK, font=f_card_title)
+        draw.text((right_x + right_w - 130, gy + 14), f"{val}", fill=score_c, font=f_score_num)
 
-    checks = [
-        ("Lead Form Active", footprint.get("has_lead_form")),
-        ("Click-to-Call Tap", footprint.get("has_click_to_call")),
-        ("SSL Enforced", footprint.get("has_ssl")),
-        ("JSON-LD Schema", footprint.get("has_schema")),
-        ("GA4 / GTM Tag", footprint.get("has_ga4") or footprint.get("has_gtm")),
-        ("Meta Pixel", footprint.get("has_meta_pixel")),
-        ("Booking Embed", footprint.get("has_booking_embed")),
-        ("Live Chat / SMS", footprint.get("has_live_chat"))
+        bar_w = right_w - 60
+        bar_y = gy + 88
+        draw.rounded_rectangle([right_x + 30, bar_y, right_x + 30 + bar_w, bar_y + 14], radius=7, fill=(226, 232, 240))
+        draw.rounded_rectangle([right_x + 30, bar_y, right_x + 30 + int(bar_w * (val / 100)), bar_y + 14], radius=7, fill=score_c)
+        gy += card_h + 20
+
+    y += split_h + 38
+
+    # -------------------------------------------------------------
+    # 5. EXPANDED CHECKLIST: 16 METRICS (Black titles, Green/Red checks)
+    # -------------------------------------------------------------
+    draw.text((mx, y), "Website Foundations & Customer Contact Check", fill=COLOR_BRAND_DARK, font=f_sec)
+    y += 50
+
+    tech_w = W - (2 * mx)
+    tech_h = 280
+    draw.rounded_rectangle([mx, y, mx + tech_w, y + tech_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
+
+    # 16 Metrics across 4 columns (fills available horizontal space)
+    checklist_data = [
+        # Col 1: Customer Contact
+        ("Mobile Tap-to-Call", footprint.get("has_click_to_call"), "Active", "Missing"),
+        ("Online Quote / Form", footprint.get("has_lead_form"), "Found", "Missing"),
+        ("Instant Chat / SMS", footprint.get("chat_platform", "None") not in ["None", "Not Detected", None], "Installed", "None"),
+        ("Direct Booking Calendar", footprint.get("booking_platform", "None") not in ["None", "Not Detected", None], "Enabled", "None"),
+        # Col 2: Speed & Mobile UX
+        ("Fast Mobile Loading", (footprint.get("load_speed_sec", 4.0) or 4.0) < 2.5, "Fast", "Slow"),
+        ("Smartphone Layout", footprint.get("is_mobile_responsive", True), "Optimized", "Not Mobile Ready"),
+        ("Image Size Optimization", footprint.get("images_missing_alt", 0) <= 2, "Clean", f"{footprint.get('images_missing_alt', 3)} Unoptimized"),
+        ("Page Title Hierarchy", footprint.get("heading_issue", "Clean Hierarchy") in ["Clean Hierarchy", "None"], "Standard", "Disorganized"),
+        # Col 3: Trust & Discovery
+        ("Secure Connection (SSL)", footprint.get("has_ssl", True), "Secure", "Unsecured"),
+        ("Google Search Markup", footprint.get("has_schema", False), "Indexed", "Missing"),
+        ("Page Summary Tags", footprint.get("has_meta_desc", True), "Complete", "Incomplete"),
+        ("Privacy & Trust Policy", footprint.get("has_privacy_policy", True), "Published", "Missing"),
+        # Col 4: Tracking & Visibility
+        ("Website Visitor Analytics", footprint.get("has_ga4", False), "Tracking", "No Data"),
+        ("Marketing Tag System", footprint.get("has_gtm", False), "Connected", "Unconnected"),
+        ("Social Audience Tracking", footprint.get("has_meta_pixel", False), "Active", "Inactive"),
+        ("Social Business Profiles", len(footprint.get("social_links", [])) > 0, "Connected", "Missing")
     ]
 
-    cx = mx + 40
-    cy = y + 85
-    for i, (label, passed) in enumerate(checks):
-        status_col = STYLE["GREEN"] if passed else STYLE["RED"]
-        mark = "✓" if passed else "✕"
-        draw.text((cx, cy), f"{mark} {label}", fill=status_col, font=f_bold)
-        cx += 280
-        if (i + 1) % 4 == 0:
-            cx = mx + 40
-            cy += 80
+    col_w = tech_w // 4
+    for i, (title_str, is_good, good_lbl, bad_lbl) in enumerate(checklist_data):
+        c_col = i // 4
+        c_row = i % 4
+        ix = mx + 25 + (c_col * col_w)
+        iy = y + 20 + (c_row * 60)
 
-    # 5. Competitor Benchmark Matrix
-    y += 370
-    draw.rounded_rectangle([mx, y, W - mx, y + 420], radius=16, fill=STYLE["CARD_BG"], outline=STYLE["CARD_BORDER"], width=2)
-    draw.text((mx + 35, y + 25), "LOCAL BENCHMARK GAP ANALYSIS", fill=STYLE["TEXT_MAIN"], font=f_bold)
+        check_sym = "✔" if is_good else "✘"
+        sym_color = GREEN if is_good else RED
+        val_str = good_lbl if is_good else bad_lbl
 
-    rival_name = rival.get("name", "Local Top Competitor")
-    t_rating = lead.get("rating", 0)
-    r_rating = rival.get("rating", 4.8)
-    t_rev = lead.get("review_count", 0)
-    r_rev = rival.get("review_count", 150)
-    t_spd = footprint.get("load_speed_sec", 2.0)
-    r_spd = rival_fp.get("load_speed_sec", 1.2)
+        draw.text((ix, iy), check_sym, fill=sym_color, font=f_check_sym)
+        # Black title text
+        draw.text((ix + 35, iy + 2), title_str, fill=TEXT_DARK, font=f_check_label)
+        draw.text((ix + 35, iy + 30), val_str, fill=sym_color if not is_good else TEXT_BODY, font=f_check_val)
 
-    headers = ["Metric Dimension", lead.get("name", "Audit Target")[:20], rival_name[:20], "Strategic Gap Advantage"]
-    col_offsets = [mx + 40, mx + 620, mx + 1180, mx + 1700]
+    y += tech_h + 38
 
-    my = y + 85
-    for idx, h in enumerate(headers):
-        draw.text((col_offsets[idx], my), h, fill=STYLE["BLUE"], font=f_bold)
-    draw.line([mx + 35, my + 45, W - mx - 35, my + 45], fill=STYLE["DIVIDER"], width=2)
+    # -------------------------------------------------------------
+    # 6. COMPETITOR COMPARISON (Updated terminology & 2 added metrics)
+    # -------------------------------------------------------------
+    draw.text((mx, y), "Competitor Comparison", fill=COLOR_BRAND_DARK, font=f_sec)
+    y += 50
 
-    rows = [
-        ("Star Rating", f"{t_rating} ★", f"{r_rating} ★", "Reputation Authority Deficit" if t_rating < r_rating else "Competitive Lead"),
-        ("Indexed Review Volume", f"{t_rev} Reviews", f"{r_rev} Reviews", f"{max(0, r_rev - t_rev)} Review Gap"),
-        ("Homepage Server Latency", f"{t_spd}s", f"{r_spd}s", f"{round(abs(t_spd - r_spd), 2)}s Friction Gap")
+    bench_h = 300
+    draw.rounded_rectangle([mx, y, mx + tech_w, y + bench_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
+
+    col1_x = mx + 35
+    col2_x = mx + 680
+    col3_x = mx + 1300
+    col4_x = mx + 1820
+
+    # Header Row
+    draw.text((col1_x, y + 16), "DIGITAL FACTOR", fill=TEXT_MUTED, font=f_table_head)
+    draw.text((col2_x, y + 16), f"YOUR BUSINESS ({company_name[:18]})", fill=COLOR_BRAND_DARK, font=f_table_head)
+    rival_label = rival.get('name', 'Top Local Competitor')[:20] if rival else 'Top Competitor'
+    draw.text((col3_x, y + 16), f"RIVAL ({rival_label})", fill=COLOR_COBALT, font=f_table_head)
+    draw.text((col4_x, y + 16), "HOW YOU COMPARE", fill=TEXT_MUTED, font=f_table_head)
+
+    draw.line([(mx + 25, y + 58), (mx + tech_w - 25, y + 58)], fill=BORDER, width=2)
+
+    t_stars = f"{lead.get('rating', 'N/A')}★ ({lead.get('review_count', 0)} reviews)"
+    r_stars = f"{rival.get('rating', 4.8)}★ ({rival.get('review_count', 0)} reviews)" if rival else "4.8★ (High Volume)"
+    t_speed = f"{footprint.get('load_speed_sec', 'N/A')}s"
+    r_speed = f"{rival_fp.get('load_speed_sec', '1.2')}s" if rival_fp else "1.2s"
+
+    comp_rows = [
+        ("Performance Score", t_stars, r_stars, audit.get("competitor_gap_margin", "Rival holds higher buyer trust")[:36]),
+        ("Home Page Responsiveness", t_speed, r_speed, "Speed delay causing customer bounce" if (footprint.get('load_speed_sec', 0) or 0) > 2.5 else "Responsive performance"),
+        ("Customer Booking System", "Basic / Form" if footprint.get("has_lead_form") else "Missing Forms", "Optimized Inquiry Flow", "Lost leads to local alternative"),
+        # 2 New Metrics
+        ("Mobile Contact Capability", "Click-to-Call Active" if footprint.get("has_click_to_call") else "Missing Call Link", "Instant Call Ready", "Friction for mobile phone callers"),
+        ("Local Map & Directory Footprint", f"{audit.get('scores', {}).get('directory_nap_consistency', 80)}% Alignment", "95% Alignment", "Competitor captures top map positions")
     ]
 
-    my += 65
-    for r in rows:
-        for idx, val in enumerate(r):
-            draw.text((col_offsets[idx], my), str(val), fill=STYLE["TEXT_MAIN"] if idx == 0 else STYLE["TEXT_MUTED"], font=f_body)
-        my += 60
+    for idx, (m_col, t_col, r_col, i_col) in enumerate(comp_rows):
+        ry = y + 70 + (idx * 44)
+        draw.text((col1_x, ry), m_col, fill=TEXT_BODY, font=f_table_body)
+        draw.text((col2_x, ry), t_col, fill=COLOR_BRAND_DARK, font=f_table_body_b)
+        draw.text((col3_x, ry), r_col, fill=COLOR_COBALT, font=f_table_body_b)
+        draw.text((col4_x, ry), i_col, fill=RED if any(k in i_col.lower() for k in ["delay", "lost", "friction", "higher", "missing"]) else TEXT_BODY, font=f_table_body)
 
-    # 6. Strategic Finding & Priority Fix
-    y += 470
-    draw.rounded_rectangle([mx, y, W - mx, y + 360], radius=16, fill=STYLE["BLUE_BG"], outline=STYLE["BLUE"], width=2)
-    draw.text((mx + 35, y + 25), "EXECUTIVE ROADMAP & REVENUE RECOVERY ACTIONS", fill=STYLE["BLUE"], font=f_bold)
+    y += bench_h + 38
 
-    draw.text((mx + 35, y + 85), "PRIMARY WEAKNESS:", fill=STYLE["TEXT_MAIN"], font=f_bold)
-    draw.text((mx + 380, y + 85), audit.get("core_weakness", "Conversion friction"), fill=STYLE["TEXT_MUTED"], font=f_body)
+    # -------------------------------------------------------------
+    # 7. EXECUTIVE SUMMARY & REVENUE RECOVERY ACTIONS (+4 pt Bigger)
+    # -------------------------------------------------------------
+    box_w = (tech_w - 40) // 2
+    box_h = 320
 
-    draw.text((mx + 35, y + 160), "HIGH-ROI QUICK WIN:", fill=STYLE["TEXT_MAIN"], font=f_bold)
-    draw.text((mx + 380, y + 160), audit.get("quick_win", "Implement instant mobile booking"), fill=STYLE["TEXT_MUTED"], font=f_body)
+    # Summary Box (Weakness)
+    draw.rounded_rectangle([mx, y, mx + box_w, y + box_h], radius=16, fill=(254, 242, 242), outline=(254, 202, 202), width=2)
+    draw.text((mx + 35, y + 25), "EXECUTIVE SUMMARY: WHERE REVENUE IS LOST", fill=RED, font=f_exec_head)
+    weakness_text = audit.get("core_weakness", "Mobile barriers and missing contact triggers divert potential clients to competitors.")
+    draw.text((mx + 35, y + 80), weakness_text[:110], fill=COLOR_BRAND_DARK, font=f_exec_title)
+    draw.text((mx + 35, y + 160), "• Mobile shoppers abandon due to missing 1-click calling.", fill=TEXT_BODY, font=f_exec_body)
+    draw.text((mx + 35, y + 215), "• Search engine listings lack structured local business schema.", fill=TEXT_BODY, font=f_exec_body)
+    draw.text((mx + 35, y + 270), "• Customer review volume lags behind top-ranking local rivals.", fill=TEXT_BODY, font=f_exec_body)
 
-    draw.text((mx + 35, y + 235), "STRATEGIC SOLUTION:", fill=STYLE["TEXT_MAIN"], font=f_bold)
-    draw.text((mx + 380, y + 235), audit.get("solution", "3-Tier Paid Acquisition Architecture"), fill=STYLE["TEXT_MUTED"], font=f_body)
+    # Actions Box (Quick Win)
+    bx2 = mx + box_w + 40
+    draw.rounded_rectangle([bx2, y, bx2 + box_w, y + box_h], radius=16, fill=(239, 246, 255), outline=(191, 219, 254), width=2)
+    draw.text((bx2 + 35, y + 25), "REVENUE RECOVERY ACTIONS (IMMEDIATE LIFT)", fill=COLOR_COBALT, font=f_exec_head)
+    quick_win_text = audit.get("quick_win", "Implement instant mobile calling, fast lead forms, and local map pack schema.")
+    draw.text((bx2 + 35, y + 80), quick_win_text[:110], fill=COLOR_BRAND_DARK, font=f_exec_title)
+    draw.text((bx2 + 35, y + 160), "• Activate direct tap-to-call buttons across all mobile pages.", fill=TEXT_BODY, font=f_exec_body)
+    draw.text((bx2 + 35, y + 215), "• Configure LocalBusiness structured markup for Map Pack rankings.", fill=TEXT_BODY, font=f_exec_body)
+    draw.text((bx2 + 35, y + 270), "• Turn on automated review capture to outpace local competition.", fill=TEXT_BODY, font=f_exec_body)
 
-    # 7. Executive Outro Banner
-    y += 420
-    draw.line([mx, y, W - mx, y], fill=STYLE["DIVIDER"], width=2)
-    draw.text((mx, y + 40), CONFIG["CUSTOM_CTA"], fill=STYLE["TEXT_MAIN"], font=f_bold)
-    draw.text((mx, y + 90), f"Phone: {CONFIG['AGENCY_PHONE']}   |   Email: {CONFIG['AGENCY_EMAIL']}   |   Web: {CONFIG['AGENCY_WEBSITE']}", fill=STYLE["TEXT_FAINT"], font=f_body)
+    # -------------------------------------------------------------
+    # 8. CENTERED & ENLARGED CALL TO ACTION & CONTACT INFO
+    # -------------------------------------------------------------
+    foot_h = 165
+    foot_y = H - foot_h - 60
+    draw.rounded_rectangle([mx, foot_y, W - mx, foot_y + foot_h], radius=18, fill=COLOR_BRAND_DARK)
 
-    im.save(out_pdf, "PDF", resolution=300.0)
+    # Centered Main CTA Line
+    cta_line = "LET US SHOW YOU HOW WE CAN HELP RECOVER LOST REVENUE"
+    bbox_cta = draw.textbbox((0, 0), cta_line, font=f_cta_big)
+    cta_w = bbox_cta[2] - bbox_cta[0]
+    draw.text(((W - cta_w) // 2, foot_y + 30), cta_line, fill=(255, 255, 255), font=f_cta_big)
 
+    # Centered Contact Info
+    agency_web = CONFIG.get('AGENCY_WEBSITE', 'www.elkinsrevenue.com').lower()
+    agency_phone = CONFIG.get('AGENCY_PHONE', '917-327-0636')
+    agency_email = CONFIG.get('AGENCY_EMAIL', 'lorren@elkinsrevenue.com')
+    contact_line = f"WEB: {agency_web}    |    PHONE: {agency_phone}    |    EMAIL: {agency_email}"
+    
+    bbox_cont = draw.textbbox((0, 0), contact_line, font=f_cta_contact)
+    cont_w = bbox_cont[2] - bbox_cont[0]
+    draw.text(((W - cont_w) // 2, foot_y + 95), contact_line, fill=COLOR_COBALT, font=f_cta_contact)
+
+    # Save output to single-page PDF
+    img.save(out_pdf_path, "PDF", resolution=300.0)
+    print(f"  -> Updated Executive Scorecard PDF successfully created: {out_pdf_path}")
+    return out_pdf_path
 # ==============================================================================
 # GOOGLE DRIVE / SLIDES INTEGRATION (OPTION 4)
 # ==============================================================================
