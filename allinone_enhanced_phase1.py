@@ -511,23 +511,51 @@ def generate_audit(target: dict, target_fp: dict, contact: dict, rival: dict, ri
         except Exception:
             pass
 
-    # Built-in Fallback Synthesis
+# Dynamic Heuristic Synthesis (Eliminates repeated/static scores)
     r_name = rival["name"] if rival else "Local Benchmark Leader"
-    r_rating = rival.get("rating", 4.8) if rival else 4.8
-    r_reviews = rival.get("review_count", 150) if rival else 150
+    r_rating = float(rival.get("rating", 4.8) if rival else 4.8)
+    r_reviews = int(rival.get("review_count", 150) if rival else 150)
+    
+    t_perf = compute_overall_performance_score(target, target_fp)
+    dyn_speed = t_perf["speed"]
+    dyn_conv = t_perf["conversion"]
+    dyn_seo = t_perf["seo"]
+    dyn_rep = t_perf["reputation"]
+    dyn_mktg = t_perf["marketing"]
+    
+    dyn_local = int(min(98, max(25, (float(target.get("rating", 3.5) or 3.5) * 16) + (20 if target_fp.get("has_schema") else 0))))
+    dyn_leak = int(max(15, min(95, 100 - ((dyn_speed + dyn_conv) // 2))))
+
+    weaknesses = []
+    if not target_fp.get("has_click_to_call"):
+        weaknesses.append("lack of 1-tap mobile calling")
+    if not target_fp.get("has_lead_form"):
+        weaknesses.append("missing direct lead capture forms")
+    if not target_fp.get("has_schema"):
+        weaknesses.append("unindexed LocalBusiness schema")
+    if float(target_fp.get("load_speed_sec", 2.0) or 2.0) > 2.5:
+        weaknesses.append(f"high mobile latency ({target_fp.get('load_speed_sec')}s)")
+
+    core_weakness = ", ".join(weaknesses[:2]).capitalize() if weaknesses else "Conversion friction across mobile landing paths"
 
     return {
         "scores": {
-            "seo": 68, "website_speed": max(20, int(100 - (target_fp.get("load_speed_sec", 2.0) * 18))),
-            "content_clarity": 72, "lead_conversion": 52, "reputation": int(min(98, (target.get("rating", 4.0) * 20))),
-            "mobile_conversion_readiness": 58, "directory_nap_consistency": 80, "pipeline_leakage_index": 65
+            "seo": dyn_seo,
+            "website_speed": dyn_speed,
+            "content_clarity": 75 if target_fp.get("content_snippet") else 40,
+            "lead_conversion": dyn_conv,
+            "reputation": dyn_rep,
+            "mobile_conversion_readiness": dyn_conv,
+            "directory_nap_consistency": dyn_local,
+            "pipeline_leakage_index": dyn_leak
         },
-        "core_weakness": "Mobile booking friction and absent LocalBusiness schema",
-        "quick_win": "Deploy sticky tap-to-call CTA bar and Google Tag Manager GA4 triggers",
-        "solution": "3-Tier Paid Acquisition blueprint combined with friction-free mobile wireframe",
-        "competitor_gap_margin": f"{r_name} holds {r_rating}★ ({r_reviews} reviews) with faster mobile load response",
+        "core_weakness": core_weakness,
+        "quick_win": "Deploy sticky tap-to-call bar and Google Tag Manager event tracking",
+        "solution": "Frictionless mobile landing architecture with local schema optimization",
+        "competitor_gap_margin": f"{r_name} holds {r_rating}★ ({r_reviews:,} reviews) with faster mobile response",
         "email_subject": f"Digital performance brief & GTM strategy for {target['name']}",
         "email_body": f"Hi {contact['name']}, we evaluated {target['name']}'s conversion architecture and benchmarked it against {r_name}.",
+
         "gtm_slides": [
             {"title": "Executive Audit Overview", "bullets": ["Core performance baseline", f"Competitive delta vs {r_name}", "Mobile friction analysis"], "voiceover": f"Welcome. We evaluated {target['name']}'s digital platform to uncover immediate growth opportunities."},
             {"title": "Competitor Benchmark Matrix", "bullets": [f"{target['name']} vs {r_name}", "Review capture disparity", "Direct load speed contrast"], "voiceover": f"Benchmarking against {r_name} reveals clear opportunities in local authority and conversion velocity."},
@@ -966,15 +994,30 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
     y += 60
 
     # =============================================================
-    # 2. OVERALL GRADE MODULE
+    # 2. OVERALL GRADE MODULE (Deterministic & Reliable)
     # =============================================================
-    scores = audit.get("scores", {})
-    s_speed = scores.get("website_speed", scores.get("speed", 53))
-    s_mobile = scores.get("mobile_conversion_readiness", scores.get("mobile", 58))
-    s_retention = scores.get("pipeline_leakage_index", scores.get("lead_conversion", 65))
-    s_local = scores.get("directory_nap_consistency", scores.get("reputation", 80))
+    # Calculate objective scores directly from raw crawl & Places data
+    perf = compute_overall_performance_score(lead, footprint)
+    
+    # 1. Website Loading Speed (0 - 100)
+    s_speed = perf["speed"]
+    
+    # 2. Ease of Booking & Calling (Derived directly from mobile & conversion triggers)
+    s_mobile = perf["conversion"]
+    
+    # 3. Lead Capture & Tracking (Derived from marketing pixels, GTM, GA4, forms)
+    s_retention = int(round((perf["marketing"] * 0.6) + (20 if footprint.get("has_lead_form") else 0) + (20 if footprint.get("has_gtm") else 0)))
+    s_retention = max(15, min(95, s_retention))
+    
+    # 4. Local Search & Maps (Derived from rating, review volume, schema, and phone presence)
+    has_schema_bonus = 20 if footprint.get("has_schema") else 0
+    phone_listed = 20 if lead.get("phone") not in ["Not Listed", ""] else 0
+    rep_contribution = perf["reputation"] * 0.6
+    s_local = int(round(rep_contribution + has_schema_bonus + phone_listed))
+    s_local = max(20, min(98, s_local))
 
-    avg_score = (s_speed + s_mobile + s_retention + s_local) // 4
+    # Overall composite average
+    avg_score = perf["overall_score"]
 
     if avg_score >= 90:
         grade_letter = "A" if avg_score >= 94 else "A-"
