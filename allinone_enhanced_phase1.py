@@ -14,6 +14,14 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 
+#QRcode
+try:
+    import qrcode
+    QRCODE_AVAILABLE = True
+except ImportError:
+    QRCODE_AVAILABLE = False
+
+
 # Optional Playwright for live viewport & asset scraping
 try:
     from playwright.sync_api import sync_playwright
@@ -115,7 +123,7 @@ CONFIG = {
     "GOOGLE_SHEETS_CREDENTIALS_JSON": r"G:\My Drive\Elkins Revenue Consulting\AI Agent Scripts\Prospect Database\service_account.json",
 
     # Output Destination Directory
-    "OUTPUT_DIR": Path(r"G:\My Drive\Elkins Revenue Consulting\AI Agent Scripts\ElkinsRev Prospect Videos"),
+    "OUTPUT_DIR": Path(r"G:\My Drive\Elkins Revenue Consulting\AI Agent Scripts\Python-generated output files"),
     "CAPTURE_SCREENSHOT": True
 }
 
@@ -779,366 +787,560 @@ def assemble_pdf(lead, footprint, contact, audit, rival, rival_fp, out_pdf, logo
             except Exception: pass
 
 # ==============================================================================
-# SINGLE-PAGE EXECUTIVE SCORECARD (OPTION 5)
+# SINGLE-PAGE EXECUTIVE SCORECARD (OPTION 5) - REDESIGNED 5-ZONE LAYOUT
 # ==============================================================================
+def generate_qr_image(url: str, size_px: int = 190) -> Image.Image:
+    """Generates a clean 24-bit RGB QR code image or crisp fallback stub."""
+    if QRCODE_AVAILABLE:
+        try:
+            qr = qrcode.QRCode(
+                version=None,
+                error_correction=qrcode.constants.ERROR_CORRECT_M,
+                box_size=8,
+                border=2,
+            )
+            qr.add_data(url)
+            qr.make(fit=True)
+            # Create RGB image directly to ensure clean PDF export
+            pil_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+            return pil_img.resize((size_px, size_px), Image.Resampling.NEAREST)
+        except Exception as e:
+            print(f"  [QR Warning]: Failed to build standard QR, using stub: {e}")
+
+    # Fallback clean QR graphic generator
+    qr_img = Image.new("RGB", (size_px, size_px), (255, 255, 255))
+    d = ImageDraw.Draw(qr_img)
+    d.rectangle([0, 0, size_px - 1, size_px - 1], outline=(15, 23, 42), width=3)
+    # Position corner locator patterns
+    for cx, cy in [(14, 14), (size_px - 56, 14), (14, size_px - 56)]:
+        d.rectangle([cx, cy, cx + 42, cy + 42], fill=(15, 23, 42))
+        d.rectangle([cx + 7, cy + 7, cx + 35, cy + 35], fill=(255, 255, 255))
+        d.rectangle([cx + 14, cy + 14, cx + 28, cy + 28], fill=(15, 23, 42))
+    # Simulated data tracks
+    for step in range(65, size_px - 50, 14):
+        d.rectangle([step, 20, step + 6, 40], fill=(15, 23, 42))
+        d.rectangle([20, step, 40, step + 6], fill=(15, 23, 42))
+        d.rectangle([step, size_px - 38, step + 7, size_px - 22], fill=(15, 23, 42))
+        d.rectangle([size_px - 38, step, size_px - 22, step + 7], fill=(15, 23, 42))
+    return qr_img
+
+    # =============================================================
+    # BEGINNING OF SCORE CARD
+    # =============================================================
 def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, rival: dict, rival_fp: dict, audit: dict, shot_path: str, out_pdf_path: str, phase1_data: dict | None = None):
     """
     Renders an executive-grade 8.5x11 in @ 300 DPI (2550 x 3300 px) single-page audit report.
-    Updated with customer-friendly terminology, expanded checklist grid, and enlarged CTAs.
+    - QR Code removed.
+    - Footer height restored to compact dimensions.
+    - +8pt vertical spacing between all modules.
+    - Additional +2pt type size boost across all modules.
     """
     W, H = 2550, 3300
-    img = Image.new("RGB", (W, H), color=(248, 250, 252))
+    img = Image.new("RGB", (W, H), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
 
     # -------------------------------------------------------------
-    # 1. TYPOGRAPHY & FONT SETUP (Adjusted +4pt on key sections)
+    # 1. COLOR TOKENS
     # -------------------------------------------------------------
-    f_brand_main = load_font(["arialbd.ttf", "segoeuib.ttf"], 52)
+    C_BLUE = (37, 99, 235)         # Cobalt accent
+    C_BLUE_DARK = (29, 78, 216)    # Darker blue border
+    C_RED = (220, 38, 38)          # Problem Red
+    C_AMBER = (217, 119, 6)        # Attention Amber
+    C_GREEN = (22, 163, 74)        # Passing Green
+
+    TEXT_MAIN = (15, 23, 42)       # Slate 900
+    TEXT_MUTED = (71, 85, 105)     # Slate 600
+    TEXT_FAINT = (148, 163, 184)   # Slate 400
+    BORDER_LIGHT = (226, 232, 240) # Card outlines
+    BG_CARD = (248, 250, 252)
+
+    # -------------------------------------------------------------
+    # 2. TYPOGRAPHY (+2 pt boost across all tokens)
+    # -------------------------------------------------------------
+    f_brand_main = load_font(["arialbd.ttf", "segoeuib.ttf"], 76)
     f_brand_sub = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
-    f_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 54)
-    f_meta = load_font(["arial.ttf", "segoeui.ttf"], 30)
-    f_sec = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
-    
-    # +4 pt boost for Executive Summary and Section Headers
-    f_exec_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)    # Was 32
-    f_exec_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)   # Was 32
-    f_exec_body = load_font(["arial.ttf", "segoeui.ttf"], 34)       # Was 30
-    
-    f_card_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
-    f_score_num = load_font(["arialbd.ttf", "segoeuib.ttf"], 60)
-    f_table_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 30)
-    f_table_body = load_font(["arial.ttf", "segoeui.ttf"], 27)
-    f_table_body_b = load_font(["arialbd.ttf", "segoeuib.ttf"], 27)
-    
-    # Checklist typography
-    f_check_sym = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
-    f_check_label = load_font(["arialbd.ttf", "segoeuib.ttf"], 25)
-    f_check_val = load_font(["arial.ttf", "segoeui.ttf"], 23)
+    f_audit_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 74)
+    f_audit_meta = load_font(["arial.ttf", "segoeui.ttf"], 36)
 
-    # CTA typography (Enlarged)
-    f_cta_big = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
-    f_cta_contact = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
+    # Overall Grade Module
+    f_grade_label = load_font(["arialbd.ttf", "segoeuib.ttf"], 42)
+    f_grade_sub = load_font(["arial.ttf", "segoeui.ttf"], 28)
+    f_grade_giant = load_font(["arialbd.ttf", "segoeuib.ttf"], 110)
+    f_grade_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)
+    f_grade_body = load_font(["arial.ttf", "segoeui.ttf"], 30)
 
-    # Brand Colors matching elkinsrevenue.com
-    COLOR_BRAND_DARK = (30, 36, 43)    # Charcoal brand color
-    COLOR_COBALT = (37, 99, 235)       # Electric Cobalt Blue
-    TEXT_DARK = (15, 23, 42)           # Solid Black/Charcoal for items
-    TEXT_BODY = (51, 65, 85)
-    TEXT_MUTED = (100, 116, 139)
-    BORDER = (226, 232, 240)
-    CARD_BG = (255, 255, 255)
-    GREEN = (22, 163, 74)
-    RED = (220, 38, 38)
-    AMBER = (217, 119, 6)
+    # Urgency Scorecards
+    f_snap_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 38)
+    f_snap_sub = load_font(["arial.ttf", "segoeui.ttf"], 32)
+    f_card_num = load_font(["arialbd.ttf", "segoeuib.ttf"], 100)
+    f_card_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 32)
+    f_card_desc = load_font(["arial.ttf", "segoeui.ttf"], 26)
 
-    mx = 110
-    y = 95
+    # Comparison Table
+    f_tbl_box_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
+    f_tbl_box_sub = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
+    f_table_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
+    f_table_body = load_font(["arial.ttf", "segoeui.ttf"], 28)
+    f_table_body_b = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
+    f_badge_font = load_font(["arialbd.ttf", "segoeuib.ttf"], 26)
+    f_table_source = load_font(["arial.ttf", "segoeui.ttf"], 23)
 
-    # -------------------------------------------------------------
-    # 2. HEADER & LOGO LOCKUP (elkinsrevenue.com palette)
-    # -------------------------------------------------------------
-    brand_main = "ELKINS & CO."
-    draw.text((mx, y), brand_main, fill=COLOR_BRAND_DARK, font=f_brand_main)
-    bbox_b = draw.textbbox((mx, y), brand_main, font=f_brand_main)
-    
-    draw.line([(bbox_b[2] + 25, y + 6), (bbox_b[2] + 25, y + 54)], fill=TEXT_MUTED, width=3)
-    draw.text((bbox_b[2] + 45, y + 10), "REVENUE STRATEGIES", fill=COLOR_COBALT, font=f_brand_sub)
+    # Foundations Checklist
+    f_found_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
+    f_found_sub = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
+    f_col_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 34)
+    f_found_body = load_font(["arial.ttf", "segoeui.ttf"], 28)
+    f_found_body_b = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
 
-    # Eyebrow Pill
-    pill_text = "EXECUTIVE DIGITAL AUDIT"
-    pb = draw.textbbox((0, 0), pill_text, font=f_table_head)
-    pw = pb[2] - pb[0] + 50
-    draw.rounded_rectangle([W - mx - pw, y, W - mx, y + 60], radius=12, fill=(239, 246, 255), outline=COLOR_COBALT, width=2)
-    draw.text((W - mx - pw + 25, y + 12), pill_text, fill=COLOR_COBALT, font=f_table_head)
+    # Action Matrix & Unlock Section
+    f_act_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
+    f_act_grade = load_font(["arialbd.ttf", "segoeuib.ttf"], 38)
+    f_act_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 29)
+    f_act_right_head = load_font(["arialbd.ttf", "segoeuib.ttf"], 36)
+    f_act_right_sub = load_font(["arial.ttf", "segoeui.ttf"], 28)
+    f_act_body = load_font(["arialbd.ttf", "segoeuib.ttf"], 28)
+    f_act_time = load_font(["arial.ttf", "segoeui.ttf"], 27)
+    f_act_btn = load_font(["arialbd.ttf", "segoeuib.ttf"], 26)
+    f_check_font = load_font(["arialbd.ttf", "segoeuib.ttf"], 22)
+    f_tool_title = load_font(["arialbd.ttf", "segoeuib.ttf"], 29)
+    f_tool_desc = load_font(["arial.ttf", "segoeui.ttf"], 26)
 
-    y += 90
-    draw.line([(mx, y), (W - mx, y)], fill=BORDER, width=3)
-    y += 40
+    # Footer
+    f_cta_hook = load_font(["arialbd.ttf", "segoeuib.ttf"], 40)
+    f_btn_text = load_font(["arialbd.ttf", "segoeuib.ttf"], 29)
+    f_cta_contact = load_font(["arial.ttf", "segoeui.ttf"], 26)
 
-    # -------------------------------------------------------------
-    # 3. PROSPECT AUDIT BANNER (Audit Target + Same Row Meta)
-    # -------------------------------------------------------------
-    hero_h = 165
-    draw.rounded_rectangle([mx, y, W - mx, y + hero_h], radius=18, fill=CARD_BG, outline=BORDER, width=2)
-    
-    company_name = lead.get('name', 'N/A')
-    draw.text((mx + 45, y + 25), f"Digital Audit Prepared for {company_name}", fill=COLOR_BRAND_DARK, font=f_title)
+    mx = 95
+    usable_w = W - (2 * mx)
 
-    # Single Row: Web URL and Location
-    web_url = lead.get('website', 'N/A')
-    location_str = lead.get('address', 'Denver, CO')
-    if "," in location_str:
-        parts = [p.strip() for p in location_str.split(",")]
-        location_display = f"{parts[-3]}, {parts[-2][:2].upper()}" if len(parts) >= 3 else location_str
+    # =============================================================
+    # 1. HEADER ZONE
+    # =============================================================
+    y = 75
+    logo_file_candidates = [
+        Path(CONFIG["OUTPUT_DIR"]).parent / "logo.png",
+        Path(__file__).resolve().parent / "logo.png",
+        Path(r"G:\My Drive\Elkins Revenue Consulting\logo.png")
+    ]
+    loaded_logo = None
+    for cand in logo_file_candidates:
+        if cand.exists():
+            try:
+                loaded_logo = Image.open(cand).convert("RGBA")
+                break
+            except Exception:
+                continue
+
+    if loaded_logo:
+        aspect = loaded_logo.width / max(1, loaded_logo.height)
+        logo_h = 108
+        logo_w = int(logo_h * aspect)
+        resized_logo = loaded_logo.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
+        img.paste(resized_logo, (mx, y), mask=resized_logo.split()[3])
     else:
-        location_display = location_str
+        cur_x = mx
+        draw.text((cur_x, y), "ELKINS ", fill=TEXT_MAIN, font=f_brand_main)
+        cur_x += draw.textbbox((0, 0), "ELKINS ", font=f_brand_main)[2]
+        draw.text((cur_x, y), "& ", fill=C_BLUE, font=f_brand_main)
+        cur_x += draw.textbbox((0, 0), "& ", font=f_brand_main)[2]
+        draw.text((cur_x, y), "CO.", fill=TEXT_MAIN, font=f_brand_main)
+        draw.text((mx + 2, y + 86), "REVENUE SOLUTIONS", fill=C_BLUE, font=f_brand_sub)
 
-    combined_meta = f"Web: {web_url}   |   Location: {location_display}   |   Audited: {pd.Timestamp.now().strftime('%B %Y')}"
-    draw.text((mx + 45, y + 95), combined_meta, fill=TEXT_BODY, font=f_meta)
+    hdr_right_title = "DIGITAL REVENUE AUDIT"
+    t_bbox = draw.textbbox((0, 0), hdr_right_title, font=f_audit_title)
+    hdr_t_w = t_bbox[2] - t_bbox[0]
+    draw.text((W - mx - hdr_t_w, y), hdr_right_title, fill=TEXT_MAIN, font=f_audit_title)
 
-    y += hero_h + 40
+    company_name = lead.get('name', 'Lockchief')
+    loc = lead.get('address', 'Denver, CO')
+    loc_clean = loc.split(",")[0].strip() if "," in loc else loc
+    date_str = pd.Timestamp.now().strftime('%B %Y')
+    prep_str = f"Prepared for {company_name}  |  {loc_clean}  |  {date_str}"
+    m_bbox = draw.textbbox((0, 0), prep_str, font=f_audit_meta)
+    prep_w = m_bbox[2] - m_bbox[0]
+    draw.text((W - mx - prep_w, y + 88), prep_str, fill=TEXT_MUTED, font=f_audit_meta)
 
-    # -------------------------------------------------------------
-    # 4. SPLIT SECTION: SCREENSHOT MOCKUP vs EASY SUB-PILLARS
-    # -------------------------------------------------------------
-    split_h = 710
-    left_w = 1180
-    right_x = mx + left_w + 50
-    right_w = W - mx - right_x
+    y += 148
+    draw.line([(mx, y), (W - mx, y)], fill=BORDER_LIGHT, width=3)
+    # +8pt increased gap
+    y += 60
 
-    # Left: Desktop Browser Mockup
-    draw.rounded_rectangle([mx, y, mx + left_w, y + split_h], radius=18, fill=CARD_BG, outline=BORDER, width=2)
-    draw.rounded_rectangle([mx, y, mx + left_w, y + 54], radius=18, fill=(241, 245, 249))
-    draw.rectangle([mx, y + 36, mx + left_w, y + 54], fill=(241, 245, 249))
-    draw.ellipse([mx + 25, y + 20, mx + 43, y + 38], fill=(239, 68, 68))
-    draw.ellipse([mx + 55, y + 20, mx + 73, y + 38], fill=(245, 158, 11))
-    draw.ellipse([mx + 85, y + 20, mx + 103, y + 38], fill=(34, 197, 94))
-    draw.text((mx + 130, y + 14), web_url, fill=TEXT_MUTED, font=f_table_body)
-
-    if shot_path and os.path.exists(shot_path):
-        try:
-            with Image.open(shot_path) as s_img:
-                s_img = s_img.convert("RGB")
-                shot_render_h = split_h - 58
-                s_resized = s_img.resize((left_w - 6, shot_render_h), Image.Resampling.LANCZOS)
-                img.paste(s_resized, (mx + 3, y + 55))
-        except Exception:
-            draw.text((mx + 340, y + 320), "[Live Website Viewport Active]", fill=TEXT_MUTED, font=f_sec)
-    else:
-        draw.text((mx + 340, y + 320), "[Live Website Viewport Active]", fill=TEXT_MUTED, font=f_sec)
-
-    # Right: Sub-Pillars in Plain, Easy English
+    # =============================================================
+    # 2. OVERALL GRADE MODULE
+    # =============================================================
     scores = audit.get("scores", {})
-    plain_pillars = [
-        ("Ease of Booking & Calling (Mobile)", scores.get("mobile_conversion_readiness", scores.get("mobile", 55))),
-        ("Website Loading Speed", scores.get("website_speed", scores.get("speed", 68))),
-        ("Local Search & Map Accuracy", scores.get("directory_nap_consistency", 84)),
-        ("Lead Retention & Customer Capture", scores.get("pipeline_leakage_index", 62))
+    s_speed = scores.get("website_speed", scores.get("speed", 53))
+    s_mobile = scores.get("mobile_conversion_readiness", scores.get("mobile", 58))
+    s_retention = scores.get("pipeline_leakage_index", scores.get("lead_conversion", 65))
+    s_local = scores.get("directory_nap_consistency", scores.get("reputation", 80))
+
+    avg_score = (s_speed + s_mobile + s_retention + s_local) // 4
+
+    if avg_score >= 90:
+        grade_letter = "A" if avg_score >= 94 else "A-"
+        theme_accent = (22, 163, 74)
+        theme_border = (21, 128, 61)
+        theme_bg = (240, 253, 244)
+        theme_divider = (187, 247, 208)
+        core_head = "Strong digital foundations with key opportunities to lead."
+        loss_p1 = "Solid overall infrastructure in place; closing minor conversion friction"
+        loss_p2 = "will lock in dominant market share against local competitors."
+    elif avg_score >= 80:
+        grade_letter = "B+" if avg_score >= 85 else "B"
+        theme_accent = (217, 119, 6)
+        theme_border = (180, 83, 9)
+        theme_bg = (254, 252, 232)
+        theme_divider = (254, 240, 138)
+        core_head = "Competitive baseline, but leaving ready revenue on the table."
+        loss_p1 = "Good brand footprint, yet speed bottlenecks and booking friction"
+        loss_p2 = "cost valuable conversion opportunities every week."
+    else:
+        if avg_score >= 75: grade_letter = "B-"
+        elif avg_score >= 70: grade_letter = "C+"
+        elif avg_score >= 60: grade_letter = "C"
+        else: grade_letter = "D"
+        theme_accent = (220, 38, 38)
+        theme_border = (185, 28, 28)
+        theme_bg = (254, 242, 242)
+        theme_divider = (254, 202, 202)
+        core_head = "Revenue is leaking when customers are ready to call."
+        loss_p1 = "Slow mobile pages and no one-tap booking path send"
+        loss_p2 = "ready-to-buy shoppers to a competitor with more reviews."
+
+    grade_box_h = 215
+    draw.rounded_rectangle([mx, y, mx + usable_w, y + grade_box_h], radius=18, fill=theme_bg, outline=theme_border, width=3)
+    draw.text((mx + 40, y + 46), "OVERALL GRADE", fill=theme_accent, font=f_grade_label)
+    draw.text((mx + 40, y + 106), "4 scored areas  |  public data only", fill=TEXT_MUTED, font=f_grade_sub)
+    draw.text((mx + 560, y + 36), grade_letter, fill=theme_accent, font=f_grade_giant)
+
+    draw.line([(mx + 760, y + 30), (mx + 760, y + grade_box_h - 30)], fill=theme_divider, width=3)
+    draw.text((mx + 805, y + 40), core_head, fill=TEXT_MAIN, font=f_grade_title)
+    draw.text((mx + 805, y + 94), loss_p1, fill=TEXT_MUTED, font=f_grade_body)
+    draw.text((mx + 805, y + 136), loss_p2, fill=TEXT_MUTED, font=f_grade_body)
+
+    # +8pt increased gap
+    y += grade_box_h + 120
+
+    # =============================================================
+    # 3. PERFORMANCE SNAPSHOT
+    # =============================================================
+    draw.text((mx, y), "YOUR SCORES", fill=TEXT_MAIN, font=f_snap_head)
+    head_w = draw.textbbox((0, 0), "YOUR SCORES", font=f_snap_head)[2]
+    draw.text((mx + head_w + 16, y + 3), "|  ranked by urgency", fill=TEXT_MUTED, font=f_snap_sub)
+    y += 62
+
+    card_data = [
+        ("Website Loading Speed", s_speed, "Slow pages lose visitors before they ever call or book."),
+        ("Ease of Booking & Calling", s_mobile, "Mobile visitors can't call or book in one tap."),
+        ("Lead Capture & Tracking", s_retention, "No sticky call button and gaps in tracking."),
+        ("Local Search & Maps", s_local, "Strong map presence, with room to lead.")
+    ]
+    card_data.sort(key=lambda item: item[1])
+
+    card_gap = 26
+    card_w = (usable_w - (3 * card_gap)) // 4
+    card_h = 305
+
+    for idx, (label, val, desc) in enumerate(card_data):
+        cx = mx + (idx * (card_w + card_gap))
+        if val >= 80:
+            c_fill, c_border, c_accent, c_track = (240, 253, 244), (22, 163, 74), (22, 163, 74), (220, 252, 231)
+        elif val >= 60:
+            c_fill, c_border, c_accent, c_track = (254, 252, 232), (217, 119, 6), (217, 119, 6), (254, 243, 199)
+        else:
+            c_fill, c_border, c_accent, c_track = (254, 242, 242), (220, 38, 38), (220, 38, 38), (254, 226, 226)
+
+        draw.rounded_rectangle([cx, y, cx + card_w, y + card_h], radius=20, fill=c_fill, outline=c_border, width=3)
+
+        num_str = str(val)
+        n_bbox = draw.textbbox((0, 0), num_str, font=f_card_num)
+        nw = n_bbox[2] - n_bbox[0]
+        draw.text((cx + (card_w - nw) // 2, y + 16), num_str, fill=c_accent, font=f_card_num)
+
+        meter_margin = 36
+        meter_w = card_w - (meter_margin * 2)
+        meter_h = 14
+        meter_x = cx + meter_margin
+        meter_y = y + 136
+
+        draw.rounded_rectangle([meter_x, meter_y, meter_x + meter_w, meter_y + meter_h], radius=7, fill=c_track)
+        fill_w = max(meter_h, int(meter_w * (min(100, max(0, val)) / 100.0)))
+        draw.rounded_rectangle([meter_x, meter_y, meter_x + fill_w, meter_y + meter_h], radius=7, fill=c_accent)
+
+        t_words = label.split()
+        t_lines, cur_line = [], ""
+        for word in t_words:
+            cand = f"{cur_line} {word}".strip()
+            if draw.textbbox((0, 0), cand, font=f_card_title)[2] <= (card_w - 24):
+                cur_line = cand
+            else:
+                if cur_line: t_lines.append(cur_line)
+                cur_line = word
+        if cur_line: t_lines.append(cur_line)
+
+        ty = y + 166
+        for tl in t_lines[:2]:
+            tl_bbox = draw.textbbox((0, 0), tl, font=f_card_title)
+            tl_w = tl_bbox[2] - tl_bbox[0]
+            draw.text((cx + (card_w - tl_w) // 2, ty), tl, fill=TEXT_MAIN, font=f_card_title)
+            ty += 36
+
+        d_words = desc.split()
+        d_lines, cur_d = [], ""
+        for word in d_words:
+            cand = f"{cur_d} {word}".strip()
+            if draw.textbbox((0, 0), cand, font=f_card_desc)[2] <= (card_w - 36):
+                cur_d = cand
+            else:
+                if cur_d: d_lines.append(cur_d)
+                cur_d = word
+        if cur_d: d_lines.append(cur_d)
+
+        dy = ty + 8
+        for dl in d_lines[:2]:
+            dl_bbox = draw.textbbox((0, 0), dl, font=f_card_desc)
+            dl_w = dl_bbox[2] - dl_bbox[0]
+            draw.text((cx + (card_w - dl_w) // 2, dy), dl, fill=TEXT_MUTED, font=f_card_desc)
+            dy += 30
+
+    # +8pt increased gap
+    y += card_h + 120
+
+    # =============================================================
+    # 4. WHAT'S COSTING YOU CUSTOMERS
+    # =============================================================
+    table_box_h = 515
+    draw.rounded_rectangle([mx, y, mx + usable_w, y + table_box_h], radius=18, fill=BG_CARD, outline=BORDER_LIGHT, width=2)
+
+    title_start_x = mx + 36
+    draw.text((title_start_x, y + 26), "WHAT'S COSTING YOU CUSTOMERS", fill=TEXT_MAIN, font=f_tbl_box_title)
+    t_main_w = draw.textbbox((0, 0), "WHAT'S COSTING YOU CUSTOMERS", font=f_tbl_box_title)[2]
+    draw.text((title_start_x + t_main_w + 16, y + 29), "|   and the proof", fill=TEXT_MAIN, font=f_tbl_box_sub)
+
+    col_x = [
+        mx + 36,
+        mx + 390,
+        mx + 840,
+        mx + 1340,
+        mx + usable_w - 235
     ]
 
-    card_h = (split_h - (3 * 20)) // 4
-    gy = y
-    for label, val in plain_pillars:
-        draw.rounded_rectangle([right_x, gy, right_x + right_w, gy + card_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
-        score_c = GREEN if val >= 80 else (AMBER if val >= 60 else RED)
+    head_y = y + 90
+    draw.text((col_x[0], head_y), "ISSUE", fill=C_BLUE, font=f_table_head)
+    draw.text((col_x[1], head_y), company_name[:16].upper(), fill=C_BLUE, font=f_table_head)
+    draw.text((col_x[2], head_y), "TOP RIVAL", fill=C_BLUE, font=f_table_head)
+    draw.text((col_x[3], head_y), "WHAT IT COSTS YOU", fill=C_BLUE, font=f_table_head)
+    draw.text((col_x[4] - 30, head_y), "AFFECTS", fill=C_BLUE, font=f_table_head)
 
-        draw.text((right_x + 30, gy + 22), label, fill=COLOR_BRAND_DARK, font=f_card_title)
-        draw.text((right_x + right_w - 130, gy + 14), f"{val}", fill=score_c, font=f_score_num)
+    draw.line([(mx + 25, head_y + 42), (mx + usable_w - 25, head_y + 42)], fill=BORDER_LIGHT, width=2)
 
-        bar_w = right_w - 60
-        bar_y = gy + 88
-        draw.rounded_rectangle([right_x + 30, bar_y, right_x + 30 + bar_w, bar_y + 14], radius=7, fill=(226, 232, 240))
-        draw.rounded_rectangle([right_x + 30, bar_y, right_x + 30 + int(bar_w * (val / 100)), bar_y + 14], radius=7, fill=score_c)
-        gy += card_h + 20
-
-    y += split_h + 38
-
-    # -------------------------------------------------------------
-    # 5. EXPANDED CHECKLIST: 16 METRICS (Black titles, Green/Red checks)
-    # -------------------------------------------------------------
-    draw.text((mx, y), "Website Foundations & Customer Contact Check", fill=COLOR_BRAND_DARK, font=f_sec)
-    y += 50
-
-    tech_w = W - (2 * mx)
-    tech_h = 280
-    draw.rounded_rectangle([mx, y, mx + tech_w, y + tech_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
-
-    # 16 Metrics across 4 columns (fills available horizontal space)
-    checklist_data = [
-        # Col 1: Customer Contact
-        ("Mobile Tap-to-Call", footprint.get("has_click_to_call"), "Active", "Missing"),
-        ("Online Quote / Form", footprint.get("has_lead_form"), "Found", "Missing"),
-        ("Instant Chat / SMS", footprint.get("chat_platform", "None") not in ["None", "Not Detected", None], "Installed", "None"),
-        ("Direct Booking Calendar", footprint.get("booking_platform", "None") not in ["None", "Not Detected", None], "Enabled", "None"),
-        # Col 2: Speed & Mobile UX
-        ("Fast Mobile Loading", (footprint.get("load_speed_sec", 4.0) or 4.0) < 2.5, "Fast", "Slow"),
-        ("Smartphone Layout", footprint.get("is_mobile_responsive", True), "Optimized", "Not Mobile Ready"),
-        ("Image Size Optimization", footprint.get("images_missing_alt", 0) <= 2, "Clean", f"{footprint.get('images_missing_alt', 3)} Unoptimized"),
-        ("Page Title Hierarchy", footprint.get("heading_issue", "Clean Hierarchy") in ["Clean Hierarchy", "None"], "Standard", "Disorganized"),
-        # Col 3: Trust & Discovery
-        ("Secure Connection (SSL)", footprint.get("has_ssl", True), "Secure", "Unsecured"),
-        ("Google Search Markup", footprint.get("has_schema", False), "Indexed", "Missing"),
-        ("Page Summary Tags", footprint.get("has_meta_desc", True), "Complete", "Incomplete"),
-        ("Privacy & Trust Policy", footprint.get("has_privacy_policy", True), "Published", "Missing"),
-        # Col 4: Tracking & Visibility
-        ("Website Visitor Analytics", footprint.get("has_ga4", False), "Tracking", "No Data"),
-        ("Marketing Tag System", footprint.get("has_gtm", False), "Connected", "Unconnected"),
-        ("Social Audience Tracking", footprint.get("has_meta_pixel", False), "Active", "Inactive"),
-        ("Social Business Profiles", len(footprint.get("social_links", [])) > 0, "Connected", "Missing")
-    ]
-
-    col_w = tech_w // 4
-    for i, (title_str, is_good, good_lbl, bad_lbl) in enumerate(checklist_data):
-        c_col = i // 4
-        c_row = i % 4
-        ix = mx + 25 + (c_col * col_w)
-        iy = y + 20 + (c_row * 60)
-
-        check_sym = "✔" if is_good else "✘"
-        sym_color = GREEN if is_good else RED
-        val_str = good_lbl if is_good else bad_lbl
-
-        draw.text((ix, iy), check_sym, fill=sym_color, font=f_check_sym)
-        # Black title text
-        draw.text((ix + 35, iy + 2), title_str, fill=TEXT_DARK, font=f_check_label)
-        draw.text((ix + 35, iy + 30), val_str, fill=sym_color if not is_good else TEXT_BODY, font=f_check_val)
-
-    y += tech_h + 38
-
-    # -------------------------------------------------------------
-    # 6. COMPETITOR COMPARISON (Updated terminology & 2 added metrics)
-    # -------------------------------------------------------------
-    draw.text((mx, y), "Competitor Comparison", fill=COLOR_BRAND_DARK, font=f_sec)
-    y += 50
-
-    bench_h = 300
-    draw.rounded_rectangle([mx, y, mx + tech_w, y + bench_h], radius=16, fill=CARD_BG, outline=BORDER, width=2)
-
-    col1_x = mx + 35
-    col2_x = mx + 680
-    col3_x = mx + 1300
-    col4_x = mx + 1820
-
-    # Header Row
-    draw.text((col1_x, y + 16), "DIGITAL FACTOR", fill=TEXT_MUTED, font=f_table_head)
-    draw.text((col2_x, y + 16), f"YOUR BUSINESS ({company_name[:18]})", fill=COLOR_BRAND_DARK, font=f_table_head)
-    rival_label = rival.get('name', 'Top Local Competitor')[:20] if rival else 'Top Competitor'
-    draw.text((col3_x, y + 16), f"RIVAL ({rival_label})", fill=COLOR_COBALT, font=f_table_head)
-    draw.text((col4_x, y + 16), "HOW YOU COMPARE", fill=TEXT_MUTED, font=f_table_head)
-
-    draw.line([(mx + 25, y + 58), (mx + tech_w - 25, y + 58)], fill=BORDER, width=2)
-
-    t_stars = f"{lead.get('rating', 'N/A')}★ ({lead.get('review_count', 0)} reviews)"
-    r_stars = f"{rival.get('rating', 4.8)}★ ({rival.get('review_count', 0)} reviews)" if rival else "4.8★ (High Volume)"
-    t_speed = f"{footprint.get('load_speed_sec', 'N/A')}s"
-    r_speed = f"{rival_fp.get('load_speed_sec', '1.2')}s" if rival_fp else "1.2s"
+    t_rev = lead.get('review_count', 15) or 0
+    t_rat = float(lead.get('rating', 4.2) or 4.2)
+    r_rev = rival.get('review_count', 2056) or 0
+    r_rat = float(rival.get('rating', 5.0) or 5.0)
+    t_speed_num = float(footprint.get('load_speed_sec', 2.9) or 2.9)
+    r_speed_num = float(rival_fp.get('load_speed_sec', 1.47) or 1.47)
 
     comp_rows = [
-        ("Performance Score", t_stars, r_stars, audit.get("competitor_gap_margin", "Rival holds higher buyer trust")[:36]),
-        ("Home Page Responsiveness", t_speed, r_speed, "Speed delay causing customer bounce" if (footprint.get('load_speed_sec', 0) or 0) > 2.5 else "Responsive performance"),
-        ("Customer Booking System", "Basic / Form" if footprint.get("has_lead_form") else "Missing Forms", "Optimized Inquiry Flow", "Lost leads to local alternative"),
-        # 2 New Metrics
-        ("Mobile Contact Capability", "Click-to-Call Active" if footprint.get("has_click_to_call") else "Missing Call Link", "Instant Call Ready", "Friction for mobile phone callers"),
-        ("Local Map & Directory Footprint", f"{audit.get('scores', {}).get('directory_nap_consistency', 80)}% Alignment", "95% Alignment", "Competitor captures top map positions")
+        ("Google rating", f"{t_rat} ({t_rev} reviews)", f"{r_rat} ({r_rev:,} reviews)", "Rival wins trust before the first call", f"Local {s_local}", (t_rat > r_rat) or (t_rat == r_rat and t_rev >= r_rev)),
+        ("Home page speed", f"{t_speed_num} sec", f"{r_speed_num} sec", "Slow loads lose visitors before they call", f"Speed {s_speed}", t_speed_num < r_speed_num),
+        ("Booking flow", "Basic form" if footprint.get("has_lead_form") else "Missing form", "Optimized flow", "Extra friction costs you leads", f"Booking {s_mobile}", False),
+        ("Mobile calling", "Click-to-call active" if footprint.get("has_click_to_call") else "Not on every page", "Instant call-ready", "No one-tap call from every page" if not footprint.get("has_click_to_call") else "Fast call access active", f"Booking {s_mobile}", bool(footprint.get("has_click_to_call"))),
+        ("Local map accuracy", f"{s_local}%", "95%", "Rival ranks higher on map results", f"Local {s_local}", s_local >= 95)
     ]
 
-    for idx, (m_col, t_col, r_col, i_col) in enumerate(comp_rows):
-        ry = y + 70 + (idx * 44)
-        draw.text((col1_x, ry), m_col, fill=TEXT_BODY, font=f_table_body)
-        draw.text((col2_x, ry), t_col, fill=COLOR_BRAND_DARK, font=f_table_body_b)
-        draw.text((col3_x, ry), r_col, fill=COLOR_COBALT, font=f_table_body_b)
-        draw.text((col4_x, ry), i_col, fill=RED if any(k in i_col.lower() for k in ["delay", "lost", "friction", "higher", "missing"]) else TEXT_BODY, font=f_table_body)
+    row_y = head_y + 58
+    for issue, tgt_val, riv_val, cost_impact, affects_text, is_client_better in comp_rows:
+        draw.text((col_x[0], row_y), issue, fill=TEXT_MAIN, font=f_table_body_b)
+        tgt_color = C_GREEN if is_client_better else C_RED
+        draw.text((col_x[1], row_y), tgt_val, fill=tgt_color, font=f_table_body_b)
+        riv_color = C_RED if is_client_better else C_GREEN
+        draw.text((col_x[2], row_y), riv_val, fill=riv_color, font=f_table_body)
+        draw.text((col_x[3], row_y), cost_impact, fill=TEXT_MUTED, font=f_table_body)
 
-    y += bench_h + 38
+        btn_w, btn_h = 190, 44
+        btn_x1 = col_x[4] - 40
+        btn_y1 = row_y - 4
+        draw.rounded_rectangle([btn_x1, btn_y1, btn_x1 + btn_w, btn_y1 + btn_h], radius=22, fill=(239, 246, 255), outline=C_BLUE, width=2)
+        b_bbox = draw.textbbox((0, 0), affects_text, font=f_badge_font)
+        bw = b_bbox[2] - b_bbox[0]
+        bh = b_bbox[3] - b_bbox[1]
+        draw.text((btn_x1 + (btn_w - bw) // 2, btn_y1 + (btn_h - bh) // 2 - 2), affects_text, fill=C_BLUE, font=f_badge_font)
+        row_y += 56
 
-    # -------------------------------------------------------------
-    # 7. EXECUTIVE SUMMARY & REVENUE RECOVERY ACTIONS (+4 pt Bigger)
-    # -------------------------------------------------------------
-    box_w = (tech_w - 40) // 2
-    box_h = 320
+    bench_source = f"Rival benchmark: {rival.get('name', 'Top Rival')}  |  Sources: Google Business Profile, PageSpeed Insights, public listings ({date_str})"
+    draw.text((mx + 36, y + table_box_h - 40), bench_source, fill=TEXT_FAINT, font=f_table_source)
 
-    # Summary Box (Weakness)
-    draw.rounded_rectangle([mx, y, mx + box_w, y + box_h], radius=16, fill=(254, 242, 242), outline=(254, 202, 202), width=2)
-    draw.text((mx + 35, y + 25), "EXECUTIVE SUMMARY: WHERE REVENUE IS LOST", fill=RED, font=f_exec_head)
-    weakness_text = audit.get("core_weakness", "Mobile barriers and missing contact triggers divert potential clients to competitors.")
-    draw.text((mx + 35, y + 80), weakness_text[:110], fill=COLOR_BRAND_DARK, font=f_exec_title)
-    draw.text((mx + 35, y + 160), "• Mobile shoppers abandon due to missing 1-click calling.", fill=TEXT_BODY, font=f_exec_body)
-    draw.text((mx + 35, y + 215), "• Search engine listings lack structured local business schema.", fill=TEXT_BODY, font=f_exec_body)
-    draw.text((mx + 35, y + 270), "• Customer review volume lags behind top-ranking local rivals.", fill=TEXT_BODY, font=f_exec_body)
+    # +8pt increased gap
+    y += table_box_h + 120
 
-    # Actions Box (Quick Win)
-    bx2 = mx + box_w + 40
-    draw.rounded_rectangle([bx2, y, bx2 + box_w, y + box_h], radius=16, fill=(239, 246, 255), outline=(191, 219, 254), width=2)
-    draw.text((bx2 + 35, y + 25), "REVENUE RECOVERY ACTIONS (IMMEDIATE LIFT)", fill=COLOR_COBALT, font=f_exec_head)
-    quick_win_text = audit.get("quick_win", "Implement instant mobile calling, fast lead forms, and local map pack schema.")
-    draw.text((bx2 + 35, y + 80), quick_win_text[:110], fill=COLOR_BRAND_DARK, font=f_exec_title)
-    draw.text((bx2 + 35, y + 160), "• Activate direct tap-to-call buttons across all mobile pages.", fill=TEXT_BODY, font=f_exec_body)
-    draw.text((bx2 + 35, y + 215), "• Configure LocalBusiness structured markup for Map Pack rankings.", fill=TEXT_BODY, font=f_exec_body)
-    draw.text((bx2 + 35, y + 270), "• Turn on automated review capture to outpace local competition.", fill=TEXT_BODY, font=f_exec_body)
+    # =============================================================
+    # 5. WEBSITE FOUNDATIONS
+    # =============================================================
+    found_h = 265
+    draw.rounded_rectangle([mx, y, mx + usable_w, y + found_h], radius=18, fill=BG_CARD, outline=BORDER_LIGHT, width=2)
 
-    # -------------------------------------------------------------
-    # 8. AUTHORIZED DATA OPPORTUNITY — TURN MISSING DATA INTO CTA
-    # -------------------------------------------------------------
-    # The public-facing audit is intentionally useful on its own.
-    # Authorized first-party access lets Elkins & Co. replace estimates
-    # with the prospect's actual search, traffic, profile and ad data.
-    access_y = y + box_h + 42
-    access_h = 520
-    draw.rounded_rectangle([mx, access_y, W - mx, access_y + access_h], radius=18, fill=(255, 255, 255), outline=BORDER, width=2)
+    f_start_x = mx + 36
+    draw.text((f_start_x, y + 26), "WEBSITE FOUNDATIONS", fill=TEXT_MAIN, font=f_found_title)
+    f_main_w = draw.textbbox((0, 0), "WEBSITE FOUNDATIONS", font=f_found_title)[2]
+    draw.text((f_start_x + f_main_w + 16, y + 29), "|   what's in place today", fill=TEXT_MAIN, font=f_found_sub)
+    draw.line([(mx + 25, y + 80), (mx + usable_w - 25, y + 80)], fill=BORDER_LIGHT, width=2)
 
-    access_title = "WHAT WE CAN ASSESS WITH AUTHORIZED ACCOUNT ACCESS"
-    draw.text((mx + 35, access_y + 22), access_title, fill=COLOR_BRAND_DARK, font=f_exec_head)
-    access_sub = "This scorecard uses public information. With your permission, we can replace estimates with first-party performance data."
-    draw.text((mx + 35, access_y + 70), access_sub, fill=TEXT_BODY, font=f_table_body)
+    col3_w = usable_w // 3
+    col_y_head = y + 98
+    col_y_row1 = y + 150
+    col_y_row2 = y + 198
 
-    access_items = [
-        ("GOOGLE SEARCH CONSOLE", "Actual search queries, clicks, impressions, CTR and average search position."),
-        ("GOOGLE ANALYTICS 4", "Actual users, sessions, engagement and conversion activity — not website estimates."),
-        ("GOOGLE BUSINESS PROFILE", "Actual calls, website clicks, direction requests and the searches finding the business."),
-        ("GOOGLE ADS", "Actual ad impressions, clicks, spend and conversions so we can assess paid-search efficiency."),
+    # Column 1: WORKING
+    col1_x = mx + 36
+    draw.text((col1_x, col_y_head), "✔  WORKING", fill=C_GREEN, font=f_col_head)
+    w_line1 = "SSL secure  |  Google search markup" if footprint.get("has_ssl", True) else "Google search markup active"
+    w_line2 = "Page hierarchy  |  Privacy policy" if footprint.get("has_privacy_policy", True) else "Semantic heading hierarchy"
+    draw.text((col1_x, col_y_row1), w_line1, fill=TEXT_MAIN, font=f_found_body)
+    draw.text((col1_x, col_y_row2), w_line2, fill=TEXT_MAIN, font=f_found_body)
+
+    # Column 2: PARTIAL
+    col2_x = mx + col3_w + 25
+    draw.text((col2_x, col_y_head), "!  PARTIAL", fill=C_AMBER, font=f_col_head)
+    p_line1 = "Mobile layout  |  Image optimization" if footprint.get("images_missing_alt", 0) > 0 else "Mobile viewport configuration"
+    p_line2 = "Basic analytics tracking (GA4 only)" if footprint.get("has_ga4") and not footprint.get("has_gtm") else "Tag management & tracking"
+    draw.text((col2_x, col_y_row1), p_line1, fill=TEXT_MAIN, font=f_found_body)
+    draw.text((col2_x, col_y_row2), p_line2, fill=TEXT_MAIN, font=f_found_body)
+
+    # Column 3: MISSING
+    col3_x = mx + (col3_w * 2) + 15
+    draw.text((col3_x, col_y_head), "✘  MISSING", fill=C_RED, font=f_col_head)
+    m_line1 = "Mobile tap-to-call bar  |  Sticky CTA buttons" if not footprint.get("has_click_to_call") else "Sticky bottom appointment CTA"
+    m_line2 = "Direct booking calendar  |  Tag system" if not footprint.get("has_booking_embed") else "Full-funnel pipeline tracking"
+    draw.text((col3_x, col_y_row1), m_line1, fill=C_RED, font=f_found_body_b)
+    draw.text((col3_x, col_y_row2), m_line2, fill=C_RED, font=f_found_body_b)
+
+    # +8pt increased gap
+    y += found_h + 120
+
+    # =============================================================
+    # 6. ACTION MATRIX & AUTHORIZED ACCESS
+    # =============================================================
+    def get_tier_color(score_val: int) -> tuple:
+        if score_val >= 90: return (22, 163, 74)
+        elif score_val >= 80: return (217, 119, 6)
+        return (220, 38, 38)
+
+    col_current_grade = get_tier_color(avg_score)
+    target_score = 85 if avg_score < 80 else 92
+    col_target_grade = get_tier_color(target_score)
+    target_grade_str = "B+ target" if target_score == 85 else "A- target"
+
+    act_box_h = 465
+    draw.rounded_rectangle([mx, y, mx + usable_w, y + act_box_h], radius=18, fill=BG_CARD, outline=C_BLUE_DARK, width=3)
+    split_x = mx + 1380
+
+    lx = mx + 40
+    draw.text((lx, y + 26), "HOW WE'D RAISE YOUR GRADE", fill=TEXT_MAIN, font=f_act_title)
+    cur_g_x = lx + draw.textbbox((0, 0), "HOW WE'D RAISE YOUR GRADE", font=f_act_title)[2] + 28
+    draw.text((cur_g_x, y + 28), grade_letter, fill=col_current_grade, font=f_act_grade)
+    arrow_x = cur_g_x + draw.textbbox((0, 0), grade_letter, font=f_act_grade)[2] + 16
+    draw.text((arrow_x, y + 28), "→", fill=C_BLUE, font=f_act_grade)
+    tgt_x = arrow_x + draw.textbbox((0, 0), "→", font=f_act_grade)[2] + 16
+    draw.text((tgt_x, y + 28), target_grade_str, fill=col_target_grade, font=f_act_grade)
+
+    col_h_y = y + 88
+    draw.text((lx, col_h_y), "WHAT WE DO", fill=C_BLUE, font=f_act_head)
+    draw.text((mx + 795, col_h_y), "LIFTS", fill=C_BLUE, font=f_act_head)
+    draw.text((mx + 1105, col_h_y), "WHEN", fill=C_BLUE, font=f_act_head)
+    draw.line([(lx, col_h_y + 40), (split_x - 30, col_h_y + 40)], fill=BORDER_LIGHT, width=2)
+
+    actions = [
+        ("Sticky tap-to-call bar on every page", f"Booking {s_mobile}", "Week 1"),
+        ("Tag Manager + conversion tracking", f"Capture {s_retention}", "Week 1"),
+        ("Page speed tune-up", f"Speed {s_speed}", "Weeks 2-4"),
+        ("Local business schema markup", f"Local {s_local}", "Weeks 2-3"),
+        ("Review generation system", "Rival gap", "Ongoing")
     ]
 
-    card_gap = 18
-    inner_w = tech_w
-    card_w = (inner_w - card_gap) // 2
-    card_h = 170
-    for i, (label, desc) in enumerate(access_items):
-        c = i % 2
-        r = i // 2
-        cx = mx + (c * (card_w + card_gap))
-        cy = access_y + 118 + (r * (card_h + 18))
-        draw.rounded_rectangle([cx, cy, cx + card_w, cy + card_h], radius=14, fill=(239, 246, 255), outline=(191, 219, 254), width=2)
-        draw.text((cx + 22, cy + 16), label, fill=COLOR_COBALT, font=f_card_title)
+    row_ay = col_h_y + 56
+    for what_text, lift_text, when_text in actions:
+        circle_cx, circle_cy, circle_r = lx + 16, row_ay + 15, 15
+        draw.ellipse([circle_cx - circle_r, circle_cy - circle_r, circle_cx + circle_r, circle_cy + circle_r], fill=(22, 163, 74))
+        draw.text((circle_cx - 8, circle_cy - 14), "✔", fill=(255, 255, 255), font=f_check_font)
+        draw.text((lx + 46, row_ay), what_text, fill=TEXT_MAIN, font=f_act_body)
 
-        # Simple wrapped description so the scorecard remains readable at 300 DPI.
-        words = desc.split()
-        lines = []
-        current = ""
-        for word in words:
-            test = f"{current} {word}".strip()
-            if draw.textbbox((0, 0), test, font=f_table_body)[2] <= card_w - 44:
-                current = test
-            else:
-                if current:
-                    lines.append(current)
-                current = word
-        if current:
-            lines.append(current)
-        for line_idx, line in enumerate(lines[:3]):
-            draw.text((cx + 22, cy + 58 + (line_idx * 30)), line, fill=TEXT_BODY, font=f_table_body)
+        btn_w, btn_h = 180, 42
+        btn_bx = mx + 795 - 20
+        btn_by = row_ay - 4
+        draw.rounded_rectangle([btn_bx, btn_by, btn_bx + btn_w, btn_by + btn_h], radius=21, fill=(255, 255, 255), outline=C_BLUE, width=2)
+        lb_box = draw.textbbox((0, 0), lift_text, font=f_act_btn)
+        lb_w = lb_box[2] - lb_box[0]
+        lb_h = lb_box[3] - lb_box[1]
+        draw.text((btn_bx + (btn_w - lb_w) // 2, btn_by + (btn_h - lb_h) // 2 - 2), lift_text, fill=C_BLUE, font=f_act_btn)
+        draw.text((mx + 1105, row_ay), when_text, fill=TEXT_MUTED, font=f_act_time)
+        row_ay += 58
 
-    # Explicitly tell the prospect what the next step unlocks.
-    next_step = "NEXT STEP: Give us authorized access to the relevant Google accounts and we can quantify where visibility, traffic, leads and ad dollars are being won or lost."
-    draw.text((mx + 35, access_y + access_h - 48), next_step, fill=COLOR_BRAND_DARK, font=f_table_body_b)
+    draw.line([(split_x, y + 25), (split_x, y + act_box_h - 25)], fill=BORDER_LIGHT, width=2)
 
-    # -------------------------------------------------------------
-    # 9. CENTERED & ENLARGED CALL TO ACTION & CONTACT INFO
-    # -------------------------------------------------------------
-    foot_h = 165
-    foot_y = H - foot_h - 60
-    draw.rounded_rectangle([mx, foot_y, W - mx, foot_y + foot_h], radius=18, fill=COLOR_BRAND_DARK)
+    rx = split_x + 40
+    draw.text((rx, y + 26), "UNLOCK YOUR EXACT DOLLAR IMPACT", fill=C_BLUE, font=f_act_right_head)
+    draw.text((rx, y + 72), "With 15 minutes of access, we can answer:", fill=TEXT_MUTED, font=f_act_right_sub)
 
-    # Centered Main CTA Line
-    cta_line = "LET US SHOW YOU HOW WE CAN HELP RECOVER LOST REVENUE"
-    bbox_cta = draw.textbbox((0, 0), cta_line, font=f_cta_big)
-    cta_w = bbox_cta[2] - bbox_cta[0]
-    draw.text(((W - cta_w) // 2, foot_y + 30), cta_line, fill=(255, 255, 255), font=f_cta_big)
+    tool_inquiries = [
+        ("Search Console", "What do customers search before they call?"),
+        ("Business Profile", "How many calls and directions come from Google?"),
+        ("Analytics 4", "Which pages turn visitors into bookings?"),
+        ("Google Ads", "How much ad spend is being wasted?")
+    ]
+    t_y = y + 124
+    for tool_head, tool_question in tool_inquiries:
+        draw.text((rx, t_y), tool_head, fill=TEXT_MAIN, font=f_tool_title)
+        draw.text((rx, t_y + 36), tool_question, fill=TEXT_MUTED, font=f_tool_desc)
+        t_y += 76
 
-    # Centered Contact Info
-    agency_web = CONFIG.get('AGENCY_WEBSITE', 'www.elkinsrevenue.com').lower()
-    agency_phone = CONFIG.get('AGENCY_PHONE', '917-327-0636')
-    agency_email = CONFIG.get('AGENCY_EMAIL', 'lorren@elkinsrevenue.com')
-    contact_line = f"WEB: {agency_web}    |    PHONE: {agency_phone}    |    EMAIL: {agency_email}"
-    
-    bbox_cont = draw.textbbox((0, 0), contact_line, font=f_cta_contact)
-    cont_w = bbox_cont[2] - bbox_cont[0]
-    draw.text(((W - cont_w) // 2, foot_y + 95), contact_line, fill=COLOR_COBALT, font=f_cta_contact)
+    # +8pt increased gap
+    y += act_box_h +120
+
+    # =============================================================
+    # 7. FOOTER CALL-TO-ACTION (Restored Compact Size & Centered)
+    # =============================================================
+    # Restored to fixed compact height without QR code
+    foot_h = 240
+    draw.rounded_rectangle([mx, y, mx + usable_w, y + foot_h], radius=20, fill=C_BLUE)
+
+    # 1. Headline (White & Bold, Centered)
+    cta_lead = "Ready to see what each missed call is worth?"
+    cl_bbox = draw.textbbox((0, 0), cta_lead, font=f_cta_hook)
+    cl_w = cl_bbox[2] - cl_bbox[0]
+    draw.text((mx + (usable_w - cl_w) // 2, y + 26), cta_lead, fill=(255, 255, 255), font=f_cta_hook)
+
+    # 2. White Walkthrough CTA Button (Centered)
+    btn_text = "Book your free 15-minute walkthrough"
+    bt_bbox = draw.textbbox((0, 0), btn_text, font=f_btn_text)
+    bt_w = bt_bbox[2] - bt_bbox[0]
+    bt_h = bt_bbox[3] - bt_bbox[1]
+
+    btn_pad_x = 44
+    btn_w = bt_w + (btn_pad_x * 2)
+    btn_h = 60
+    btn_x = mx + (usable_w - btn_w) // 2
+    btn_y = y + 84
+
+    draw.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=30, fill=(255, 255, 255))
+    draw.text((btn_x + btn_pad_x, btn_y + (btn_h - bt_h) // 2 - 3), btn_text, fill=C_BLUE, font=f_btn_text)
+
+    # 3. Contact Coordinates (White Text, Centered)
+    agency_web = CONFIG.get("AGENCY_WEBSITE", "www.elkinsrevenue.com").lower()
+    agency_phone = CONFIG.get("AGENCY_PHONE", "917-327-0636")
+    agency_email = CONFIG.get("AGENCY_EMAIL", "info@elkinsrevenue.com")
+    contact_str = f"{agency_web}   |   {agency_phone}   |   {agency_email}"
+
+    fc_bbox = draw.textbbox((0, 0), contact_str, font=f_cta_contact)
+    fc_w = fc_bbox[2] - fc_bbox[0]
+    draw.text((mx + (usable_w - fc_w) // 2, y + 166), contact_str, fill=(255, 255, 255), font=f_cta_contact)
 
     # Save output to single-page PDF
     img.save(out_pdf_path, "PDF", resolution=300.0)
-    print(f"  -> Updated Executive Scorecard PDF successfully created: {out_pdf_path}")
+    print(f"  -> Generated Scorecard PDF (Balanced Whitespace & Clean Footer): {out_pdf_path}")
     return out_pdf_path
-# ==============================================================================
+
+#==============================================================================
 # GOOGLE DRIVE / SLIDES INTEGRATION (OPTION 4)
 # ==============================================================================
 def assemble_pitch_google_slides(company_name: str, audit: dict) -> str:
@@ -1340,7 +1542,7 @@ def main():
             print("        Updating Google Slides presentation...")
             generated_asset = assemble_pitch_google_slides(name, audit)
         elif create_scorecard:
-            out_scorecard = str(CONFIG["OUTPUT_DIR"] / f"{clean_name}_diagnostic_scorecard.pdf")
+            out_scorecard = str(CONFIG["OUTPUT_DIR"] / f"{clean_name}_scorecard.pdf")
             print(f"        Rendering Single-Page Executive Scorecard to: {out_scorecard}")
             render_single_page_scorecard(lead, footprint, contact, rival, rival_fp, audit, shot_path, out_scorecard, phase1_data=phase1_data)
             generated_asset = out_scorecard
