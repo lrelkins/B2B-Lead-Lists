@@ -1171,21 +1171,30 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
 
     draw.line([(mx + 25, head_y + 42), (mx + usable_w - 25, head_y + 42)], fill=BORDER_LIGHT, width=2)
 
-    t_rev = lead.get('review_count', 15) or 0
-    t_rat = float(lead.get('rating', 4.2) or 4.2)
-    r_rev = rival.get('review_count', 2056) or 0
-    r_rat = float(rival.get('rating', 5.0) or 5.0)
-    t_speed_num = float(footprint.get('load_speed_sec', 2.9) or 2.9)
-    r_speed_num = float(rival_fp.get('load_speed_sec', 1.47) or 1.47)
+    t_rev = int(lead.get('review_count', 0) or 0)
+    t_rat = float(lead.get('rating', 0.0) or 0.0)
+    r_rev = int(rival.get('review_count', 0) or 0)
+    r_rat = float(rival.get('rating', 0.0) or 0.0)
+    t_speed_num = float(footprint.get('load_speed_sec', 2.0) or 2.0)
+    r_speed_num = float(rival_fp.get('load_speed_sec', 1.5) or 1.5)
+
+    # Dynamic impact narratives based on actual head-to-head performance
+    is_trust_better = (t_rat > r_rat) or (t_rat == r_rat and t_rev >= r_rev)
+    trust_impact = "Strong review trust vs rival" if is_trust_better else "Rival wins trust before the first call"
+
+    is_speed_better = t_speed_num <= r_speed_num
+    speed_impact = "Fast load preserves ad traffic" if is_speed_better else "Slow loads lose visitors before they call"
+
+    is_call_active = bool(footprint.get("has_click_to_call"))
+    call_impact = "Fast call access active" if is_call_active else "No one-tap call from every page"
 
     comp_rows = [
-        ("Google rating", f"{t_rat} ({t_rev} reviews)", f"{r_rat} ({r_rev:,} reviews)", "Rival wins trust before the first call", f"Local {s_local}", (t_rat > r_rat) or (t_rat == r_rat and t_rev >= r_rev)),
-        ("Home page speed", f"{t_speed_num} sec", f"{r_speed_num} sec", "Slow loads lose visitors before they call", f"Speed {s_speed}", t_speed_num < r_speed_num),
+        ("Google rating", f"{t_rat} ({t_rev} reviews)", f"{r_rat} ({r_rev:,} reviews)", trust_impact, f"Local {s_local}", is_trust_better),
+        ("Home page speed", f"{t_speed_num} sec", f"{r_speed_num} sec", speed_impact, f"Speed {s_speed}", is_speed_better),
         ("Booking flow", "Basic form" if footprint.get("has_lead_form") else "Missing form", "Optimized flow", "Extra friction costs you leads", f"Booking {s_mobile}", False),
-        ("Mobile calling", "Click-to-call active" if footprint.get("has_click_to_call") else "Not on every page", "Instant call-ready", "No one-tap call from every page" if not footprint.get("has_click_to_call") else "Fast call access active", f"Booking {s_mobile}", bool(footprint.get("has_click_to_call"))),
-        ("Local map accuracy", f"{s_local}%", "95%", "Rival ranks higher on map results", f"Local {s_local}", s_local >= 95)
+        ("Mobile calling", "Click-to-call active" if is_call_active else "Not on every page", "Instant call-ready", call_impact, f"Booking {s_mobile}", is_call_active),
+        ("Local map accuracy", f"{s_local}%", "95%", "Strong map pack presence" if s_local >= 95 else "Rival ranks higher on map results", f"Local {s_local}", s_local >= 95)
     ]
-
     row_y = head_y + 58
     for issue, tgt_val, riv_val, cost_impact, affects_text, is_client_better in comp_rows:
         draw.text((col_x[0], row_y), issue, fill=TEXT_MAIN, font=f_table_body_b)
@@ -1205,9 +1214,10 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
         draw.text((btn_x1 + (btn_w - bw) // 2, btn_y1 + (btn_h - bh) // 2 - 2), affects_text, fill=C_BLUE, font=f_badge_font)
         row_y += 56
 
-    bench_source = f"Rival benchmark: {rival.get('name', 'Top Rival')}  |  Sources: Google Business Profile, PageSpeed Insights, public listings ({date_str})"
+    current_audit_date = pd.Timestamp.now().strftime('%B %Y')
+    clean_rival_name = str(rival.get('name', 'Top Rival')).strip()
+    bench_source = f"Rival benchmark: {clean_rival_name}  |  Sources: Google Business Profile, PageSpeed Insights, public listings ({current_audit_date})"
     draw.text((mx + 36, y + table_box_h - 40), bench_source, fill=TEXT_FAINT, font=f_table_source)
-
     # +8pt increased gap
     y += table_box_h + 120
 
@@ -1406,10 +1416,10 @@ def assemble_pitch_google_slides(company_name: str, audit: dict) -> str:
 # PERSISTENCE (GOOGLE SHEETS ONLY - NO LOCAL CSV DUAL-WRITE)
 # ==============================================================================
 def save_records(records: list):
-    """Syncs lead audit records exclusively to Google Sheets without creating a CSV."""
+    """Syncs lead audit records to Google Sheets with NaN sanitization."""
     if not records:
         return
-
+    
     creds_file = CONFIG.get("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
     sheet_name = CONFIG.get("GOOGLE_SHEET_NAME", "Prospecting Pipeline & Audit Data")
 
@@ -1421,20 +1431,24 @@ def save_records(records: list):
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
         client = gspread.authorize(creds)
-
+        
         sheet = client.open(sheet_name).sheet1
+        
+        # 1. Load DataFrame and clean NaNs
         df = pd.DataFrame(records)
+        df = df.fillna("")  # Replaces NaN with empty string
+        
         headers = list(df.columns)
-
         if not sheet.get_all_values():
             sheet.append_row(headers)
-
-        sheet.append_rows(df.astype(str).values.tolist())
+            
+        # 2. Convert all values to strings for clean Google API transmission
+        rows = df.astype(str).values.tolist()
+        sheet.append_rows(rows)
         print(f"  [GOOGLE SHEETS] Successfully synced {len(records)} record(s) to '{sheet_name}'.")
 
     except Exception as e:
         print(f"  [Google Sheets Sync Warning]: {e}")
-
 def save_intelligence_cache():
     """Placeholder to persist cached competitor research."""
     pass
