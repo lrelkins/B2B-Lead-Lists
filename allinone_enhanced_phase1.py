@@ -993,34 +993,32 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
     # +8pt increased gap
     y += 60
 
+# =============================================================
+    # 2. OVERALL GRADE MODULE (Computed from ALL Collected Data)
     # =============================================================
-    # 2. OVERALL GRADE MODULE (Deterministic & Reliable)
-    # =============================================================
-    # Calculate objective scores directly from raw crawl & Places data
+    # Run the comprehensive 5-pillar engine on the full scraped footprint
     perf = compute_overall_performance_score(lead, footprint)
     
-    # 1. Website Loading Speed (0 - 100)
-    s_speed = perf["speed"]
-    
-    # 2. Ease of Booking & Calling (Derived directly from mobile & conversion triggers)
-    s_mobile = perf["conversion"]
-    
-    # 3. Lead Capture & Tracking (Derived from marketing pixels, GTM, GA4, forms)
-    s_retention = int(round((perf["marketing"] * 0.6) + (20 if footprint.get("has_lead_form") else 0) + (20 if footprint.get("has_gtm") else 0)))
-    s_retention = max(15, min(95, s_retention))
-    
-    # 4. Local Search & Maps (Derived from rating, review volume, schema, and phone presence)
-    has_schema_bonus = 20 if footprint.get("has_schema") else 0
-    phone_listed = 20 if lead.get("phone") not in ["Not Listed", ""] else 0
-    rep_contribution = perf["reputation"] * 0.6
-    s_local = int(round(rep_contribution + has_schema_bonus + phone_listed))
-    s_local = max(20, min(98, s_local))
-
-    # Overall composite average
+    # 1. Overall Composite Score (All data points: SEO, Speed, Rep, Pixels, SSL, Forms)
     avg_score = perf["overall_score"]
 
-    if avg_score >= 90:
-        grade_letter = "A" if avg_score >= 94 else "A-"
+    # 2. The 4 Displayed Urgency Sub-Scores
+    s_speed = perf["speed"]
+    s_mobile = perf["conversion"]
+    s_retention = int(max(15, min(95, round(
+        (perf["marketing"] * 0.5) + 
+        (25 if footprint.get("has_lead_form") else 0) + 
+        (25 if footprint.get("has_gtm") else 0)
+    ))))
+    
+    # Smooth reputation scoring across small vs. massive review footprints
+    rev_cnt = int(lead.get("review_count", 0) or 0)
+    rev_pts = min(40, int(round((rev_cnt ** 0.5) * 1.5)))  # Scales smoothly without artificial caps
+    s_local = int(min(99, max(20, (float(lead.get("rating", 4.0) or 4.0) * 10) + rev_pts + (15 if footprint.get("has_schema") else 0))))
+
+    # Dynamic Copy aligned directly with the audited prospect's performance
+    if avg_score >= 85:
+        grade_letter = "A" if avg_score >= 92 else "B+"
         theme_accent = (22, 163, 74)
         theme_border = (21, 128, 61)
         theme_bg = (240, 253, 244)
@@ -1028,8 +1026,8 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
         core_head = "Strong digital foundations with key opportunities to lead."
         loss_p1 = "Solid overall infrastructure in place; closing minor conversion friction"
         loss_p2 = "will lock in dominant market share against local competitors."
-    elif avg_score >= 80:
-        grade_letter = "B+" if avg_score >= 85 else "B"
+    elif avg_score >= 70:
+        grade_letter = "B" if avg_score >= 78 else "B-"
         theme_accent = (217, 119, 6)
         theme_border = (180, 83, 9)
         theme_bg = (254, 252, 232)
@@ -1038,22 +1036,19 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
         loss_p1 = "Good brand footprint, yet speed bottlenecks and booking friction"
         loss_p2 = "cost valuable conversion opportunities every week."
     else:
-        if avg_score >= 75: grade_letter = "B-"
-        elif avg_score >= 70: grade_letter = "C+"
-        elif avg_score >= 60: grade_letter = "C"
-        else: grade_letter = "D"
+        grade_letter = "C+" if avg_score >= 60 else ("C" if avg_score >= 50 else "D")
         theme_accent = (220, 38, 38)
         theme_border = (185, 28, 28)
         theme_bg = (254, 242, 242)
         theme_divider = (254, 202, 202)
         core_head = "Revenue is leaking when customers are ready to call."
-        loss_p1 = "Slow mobile pages and no one-tap booking path send"
-        loss_p2 = "ready-to-buy shoppers to a competitor with more reviews."
+        loss_p1 = "High-friction conversion paths and missing tag architecture"
+        loss_p2 = "send ready-to-buy shoppers directly to competing providers."
 
     grade_box_h = 215
     draw.rounded_rectangle([mx, y, mx + usable_w, y + grade_box_h], radius=18, fill=theme_bg, outline=theme_border, width=3)
     draw.text((mx + 40, y + 46), "OVERALL GRADE", fill=theme_accent, font=f_grade_label)
-    draw.text((mx + 40, y + 106), "4 scored areas  |  public data only", fill=TEXT_MUTED, font=f_grade_sub)
+    draw.text((mx + 40, y + 106), "Full 12-factor audit  |  public data", fill=TEXT_MUTED, font=f_grade_sub)
     draw.text((mx + 560, y + 36), grade_letter, fill=theme_accent, font=f_grade_giant)
 
     draw.line([(mx + 760, y + 30), (mx + 760, y + grade_box_h - 30)], fill=theme_divider, width=3)
@@ -1061,7 +1056,6 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
     draw.text((mx + 805, y + 94), loss_p1, fill=TEXT_MUTED, font=f_grade_body)
     draw.text((mx + 805, y + 136), loss_p2, fill=TEXT_MUTED, font=f_grade_body)
 
-    # +8pt increased gap
     y += grade_box_h + 120
 
     # =============================================================
