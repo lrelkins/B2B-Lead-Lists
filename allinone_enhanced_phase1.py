@@ -1344,18 +1344,25 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
     # +8pt increased gap
     y += act_box_h +120
 
+# =============================================================
+    # 7. FOOTER CALL-TO-ACTION (Bottom-Aligned with Clean Margin)
     # =============================================================
-    # 7. FOOTER CALL-TO-ACTION (Restored Compact Size & Centered)
-    # =============================================================
-    # Restored to fixed compact height without QR code
     foot_h = 240
-    draw.rounded_rectangle([mx, y, mx + usable_w, y + foot_h], radius=20, fill=C_BLUE)
+    bottom_margin = 75  # Matches the top header margin (y = 75)
+    y_footer = H - bottom_margin - foot_h
+
+    # Blue container locked to the bottom of the page
+    draw.rounded_rectangle(
+        [mx, y_footer, mx + usable_w, y_footer + foot_h],
+        radius=20,
+        fill=C_BLUE
+    )
 
     # 1. Headline (White & Bold, Centered)
     cta_lead = "Ready to see what each missed call is worth?"
     cl_bbox = draw.textbbox((0, 0), cta_lead, font=f_cta_hook)
     cl_w = cl_bbox[2] - cl_bbox[0]
-    draw.text((mx + (usable_w - cl_w) // 2, y + 26), cta_lead, fill=(255, 255, 255), font=f_cta_hook)
+    draw.text((mx + (usable_w - cl_w) // 2, y_footer + 26), cta_lead, fill=(255, 255, 255), font=f_cta_hook)
 
     # 2. White Walkthrough CTA Button (Centered)
     btn_text = "Book your free 15-minute walkthrough"
@@ -1367,7 +1374,7 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
     btn_w = bt_w + (btn_pad_x * 2)
     btn_h = 60
     btn_x = mx + (usable_w - btn_w) // 2
-    btn_y = y + 84
+    btn_y = y_footer + 84
 
     draw.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=30, fill=(255, 255, 255))
     draw.text((btn_x + btn_pad_x, btn_y + (btn_h - bt_h) // 2 - 3), btn_text, fill=C_BLUE, font=f_btn_text)
@@ -1380,13 +1387,12 @@ def render_single_page_scorecard(lead: dict, footprint: dict, contact: dict, riv
 
     fc_bbox = draw.textbbox((0, 0), contact_str, font=f_cta_contact)
     fc_w = fc_bbox[2] - fc_bbox[0]
-    draw.text((mx + (usable_w - fc_w) // 2, y + 166), contact_str, fill=(255, 255, 255), font=f_cta_contact)
+    draw.text((mx + (usable_w - fc_w) // 2, y_footer + 166), contact_str, fill=(255, 255, 255), font=f_cta_contact)
 
     # Save output to single-page PDF
     img.save(out_pdf_path, "PDF", resolution=300.0)
-    print(f"  -> Generated Scorecard PDF (Balanced Whitespace & Clean Footer): {out_pdf_path}")
+    print(f"  -> Generated Scorecard PDF (Bottom-Pinned Footer): {out_pdf_path}")
     return out_pdf_path
-
 #==============================================================================
 # GOOGLE DRIVE / SLIDES INTEGRATION (OPTION 4)
 # ==============================================================================
